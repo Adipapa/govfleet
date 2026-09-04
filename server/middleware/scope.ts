@@ -21,15 +21,15 @@ export function vehicleScope(req: Request, alias = 'v'): Scope {
     params.push(req.auth.departmentId);
     conditions.push(`${alias}.department_id = $${params.length}`);
   }
-
   if (req.auth.roles.includes('driver')) {
-    params.push(req.auth.id);
+    if (!req.auth.driverId) return { clause: 'FALSE', params: [], nextIndex: 1 };
+    params.push(req.auth.driverId);
     conditions.push(`EXISTS (
       SELECT 1 FROM vehicle_driver_assignments vda
-      JOIN drivers d ON d.id = vda.driver_id
       WHERE vda.vehicle_id = ${alias}.id
-        AND vda.ends_at IS NULL
-        AND d.employee_number = $${params.length}
+        AND vda.driver_id = $${params.length}
+        AND vda.starts_at <= now()
+        AND (vda.ends_at IS NULL OR vda.ends_at > now())
     )`);
   }
 
