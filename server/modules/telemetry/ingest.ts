@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { db } from '../../db/client.js';
 import { authenticateDevice } from '../devices/credentials.js';
 import { processTelemetry } from './processor.js';
+import { publishFleetEvent } from '../../realtime/eventBus.js';
 
 export const telemetryIngestRouter = Router();
 
@@ -27,9 +28,7 @@ function validCoordinate(latitude: number, longitude: number) {
 function optionalNumber(value: unknown, name: string, min?: number, max?: number): number | null {
   if (value === undefined || value === null || value === '') return null;
   const parsed = Number(value);
-  if (!Number.isFinite(parsed) || (min !== undefined && parsed < min) || (max !== undefined && parsed > max)) {
-    throw new Error(`Invalid ${name}`);
-  }
+  if (!Number.isFinite(parsed) || (min !== undefined && parsed < min) || (max !== undefined && parsed > max)) throw new Error(`Invalid ${name}`);
   return parsed;
 }
 
@@ -38,7 +37,6 @@ telemetryIngestRouter.post('/telemetry', async (req, res, next) => {
     const deviceIdentifier = req.header('x-device-id');
     const token = req.header('x-device-token');
     if (!deviceIdentifier || !token) return res.status(401).json({ error: 'Device credentials required' });
-
     const deviceId = await authenticateDevice(deviceIdentifier, token);
     if (!deviceId) return res.status(401).json({ error: 'Invalid device credentials' });
 
@@ -83,7 +81,6 @@ telemetryIngestRouter.post('/telemetry', async (req, res, next) => {
         b.rawPayload ?? {},
       ]);
       telemetryId = telemetry.rows[0].id;
-
       await client.query(`UPDATE devices SET status = 'active', last_heartbeat_at = now(), updated_at = now() WHERE id = $1`, [deviceId]);
       await client.query(`UPDATE vehicles SET status = $1, odometer_km = COALESCE($2, odometer_km), updated_at = now() WHERE id = $3`, [status, odometerKm, vehicleId]);
       await client.query('COMMIT');
@@ -93,22 +90,16 @@ telemetryIngestRouter.post('/telemetry', async (req, res, next) => {
     } finally { client.release(); }
 
     try {
-      await processTelemetry({
-        telemetryId,
-        vehicleId,
-        recordedAt,
-        latitude,
-        longitude,
-        speedKmh: speed,
-        heading,
-        ignition,
-        odometerKm,
-        fuelLitres,
-      });
+      await processTelemetry({ telemetryId, vehicleId, recordedAt, latitude, longitude, speedKmh: speed, heading, ignition, odometerKm, fuelLitres });
     } catch (processingError) {
-      // Telemetry must remain accepted even if a secondary analytics rule fails.
       console.error('Telemetry processing failed', { telemetryId, vehicleId, error: processingError });
     }
+
+    publishFleetEvent({
+      type: 'telemetry.updated',
+      occurredAt: recordedAt.toISOString(),
+      payload: { telemetryId, vehicleId, deviceId, latitude, longitude, speedKmh: speed, heading, ignition, odometerKm, fuelLitres, status },
+    });
 
     res.status(202).json({ accepted: true, telemetryId, vehicleId, status });
   } catch (error) {
