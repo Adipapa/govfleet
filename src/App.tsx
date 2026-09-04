@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { UserRound } from 'lucide-react';
 import { TelemetryEngine } from './services/telemetryEngine';
 import { getVehicles, getLatestTelemetry, getAlerts, mapVehicle, subscribeToFleetEvents, acknowledgeAlert as apiAcknowledgeAlert, logout as apiLogout, type ApiUser } from './services/api';
 import { Vehicle, Geofence, AlertEvent, Trip, FuelLogEvent, MaintenanceItem, AuditLog, GovernmentAgency } from './types/fleet';
@@ -18,21 +19,14 @@ import { AuditSecurityView } from './components/AuditSecurityView';
 import { FleetRegistryView } from './components/FleetRegistryView';
 import { GpsDevicesView } from './components/GpsDevicesView';
 import { DriverMobileModal } from './components/DriverMobileModal';
+import { DriverAssignmentModal } from './components/DriverAssignmentModal';
 
 function mapApiAlert(row: any): AlertEvent {
   return {
-    id: String(row.id),
-    vehicleId: String(row.vehicleId),
-    vehicleReg: String(row.registrationNumber || ''),
-    department: 'All Agencies',
-    type: row.type,
-    severity: row.severity,
-    title: String(row.title || row.type),
-    message: String(row.message || ''),
-    timestamp: String(row.occurredAt),
+    id: String(row.id), vehicleId: String(row.vehicleId), vehicleReg: String(row.registrationNumber || ''), department: 'All Agencies',
+    type: row.type, severity: row.severity, title: String(row.title || row.type), message: String(row.message || ''), timestamp: String(row.occurredAt),
     location: { lat: Number(row.metadata?.latitude || 0), lng: Number(row.metadata?.longitude || 0), address: '' },
-    acknowledged: Boolean(row.acknowledgedAt),
-    dispatchedToPolice: Boolean(row.metadata?.dispatchedToPolice),
+    acknowledged: Boolean(row.acknowledgedAt), dispatchedToPolice: Boolean(row.metadata?.dispatchedToPolice),
   };
 }
 
@@ -52,6 +46,7 @@ export function App({ authUser }: { authUser: ApiUser }) {
   const [isMobileModalOpen, setIsMobileModalOpen] = useState<boolean>(false);
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [isDossierOpen, setIsDossierOpen] = useState<boolean>(false);
+  const [isAssignmentOpen, setIsAssignmentOpen] = useState<boolean>(false);
   const [activePlaybackTrip, setActivePlaybackTrip] = useState<Trip | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -60,9 +55,7 @@ export function App({ authUser }: { authUser: ApiUser }) {
     setLoadError(null);
     try {
       const [vehicleResult, telemetryResult, alertResult] = await Promise.all([
-        getVehicles({ page: 1, limit: 100 }),
-        getLatestTelemetry(),
-        getAlerts({ page: 1, limit: 100 }),
+        getVehicles({ page: 1, limit: 100 }), getLatestTelemetry(), getAlerts({ page: 1, limit: 100 }),
       ]);
       const telemetryByVehicle = new Map(telemetryResult.data.map((row) => [String(row.vehicle_id), row]));
       setVehicles(vehicleResult.data.map((row) => mapVehicle(row, telemetryByVehicle.get(row.id))));
@@ -70,9 +63,7 @@ export function App({ authUser }: { authUser: ApiUser }) {
     } catch (error) {
       console.error('QTS backend load failed', error);
       setLoadError(error instanceof Error ? error.message : 'Unable to load fleet data');
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
   useEffect(() => {
@@ -92,34 +83,23 @@ export function App({ authUser }: { authUser: ApiUser }) {
   const handleTriggerFuelTheft = (vehicleId: string) => { if (!realMode) engine.simulateFuelDrop(vehicleId, 28); };
   const handleTriggerRefuel = (vehicleId: string) => { if (!realMode) engine.simulateRefuel(vehicleId, 45); };
   const handleAcknowledgeAlert = (alertId: string) => {
-    void apiAcknowledgeAlert(alertId)
-      .then(() => setAlerts((items) => items.map((a) => a.id === alertId ? { ...a, acknowledged: true } : a)))
-      .catch(console.error);
+    void apiAcknowledgeAlert(alertId).then(() => setAlerts((items) => items.map((a) => a.id === alertId ? { ...a, acknowledged: true } : a))).catch(console.error);
   };
-  const handleDispatchPolice = (_alertId: string) => { /* Dispatch is a backend workflow; no client-side simulation in production. */ };
-  const handleAddGeofence = (_geo: Geofence) => { /* Geofence writes will use the API module when implemented. */ };
-  const handleDeleteGeofence = (_id: string) => { /* Geofence writes will use the API module when implemented. */ };
-  const handleAddMaintenance = (_item: MaintenanceItem) => { /* Maintenance writes will use the API module when implemented. */ };
+  const handleDispatchPolice = (_alertId: string) => { /* Backend workflow placeholder. */ };
+  const handleAddGeofence = (_geo: Geofence) => { /* API integration pending. */ };
+  const handleDeleteGeofence = (_id: string) => { /* API integration pending. */ };
+  const handleAddMaintenance = (_item: MaintenanceItem) => { /* API integration pending. */ };
   const handleReplayVehicleTrip = (vehicle: Vehicle) => { const existingTrip = trips.find((t) => t.vehicleReg === vehicle.regNumber) || trips[0]; if (existingTrip) { setIsDossierOpen(false); setActivePlaybackTrip(existingTrip); } };
   const handleSetSimulationSpeed = (spd: number) => { setSimulationSpeed(spd); };
   const handleLogout = async () => { await apiLogout(); window.location.reload(); };
+  const refreshAfterAssignment = () => { void loadFleet(); };
 
   return <div className="flex flex-row h-screen w-screen bg-slate-950 text-slate-100 overflow-hidden font-sans select-none">
-    <Sidebar
-      activeTab={activeTab}
-      setActiveTab={setActiveTab}
-      selectedAgency={selectedAgency}
-      currentUser={authUser}
-      activeAlerts={alerts}
-      alertCount={alerts.length}
-      onOpenAlerts={() => setActiveTab('alerts')}
-      onOpenMobileApp={() => setIsMobileModalOpen(true)}
+    <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} selectedAgency={selectedAgency} currentUser={authUser} activeAlerts={alerts} alertCount={alerts.length}
+      onOpenAlerts={() => setActiveTab('alerts')} onOpenMobileApp={() => setIsMobileModalOpen(true)}
       onTriggerSOS={() => { const target = filteredVehicles[0]; if (target) handleTriggerSOS(target.id); }}
       onTriggerFuelTheft={() => { const target = filteredVehicles[1] || filteredVehicles[0]; if (target) handleTriggerFuelTheft(target.id); }}
-      simulationSpeed={simulationSpeed}
-      setSimulationSpeed={handleSetSimulationSpeed}
-      onLogout={handleLogout}
-    />
+      simulationSpeed={simulationSpeed} setSimulationSpeed={handleSetSimulationSpeed} onLogout={handleLogout} />
     <main className="flex-1 flex flex-col overflow-hidden relative min-w-0 bg-slate-950">
       {loading && <div className="absolute top-0 left-0 right-0 z-30 h-1 bg-cyan-500 animate-pulse" />}
       {loadError && <div className="absolute top-3 right-3 z-30 max-w-md px-4 py-3 rounded-lg border border-red-800 bg-red-950/90 text-red-200 text-xs shadow-xl">Backend connection error: {loadError}</div>}
@@ -136,6 +116,8 @@ export function App({ authUser }: { authUser: ApiUser }) {
       {(activeTab === 'audit' || activeTab === 'api') && <AuditSecurityView auditLogs={auditLogs} />}
     </main>
     {isDossierOpen && selectedVehicle && <VehicleDetailModal vehicle={selectedVehicle} onClose={() => setIsDossierOpen(false)} onTriggerSOS={handleTriggerSOS} onTriggerFuelTheft={handleTriggerFuelTheft} onTriggerRefuel={handleTriggerRefuel} onPlayTrip={handleReplayVehicleTrip} />}
+    {isDossierOpen && selectedVehicle && <button id="btn-manage-driver-assignment" onClick={() => setIsAssignmentOpen(true)} className="fixed bottom-6 right-6 z-[55] flex items-center gap-2 px-4 py-3 rounded-xl bg-cyan-700 hover:bg-cyan-600 border border-cyan-500 text-white text-xs font-bold shadow-2xl"><UserRound className="w-4 h-4" />Manage Driver Assignment</button>}
+    {isAssignmentOpen && selectedVehicle && <DriverAssignmentModal vehicle={selectedVehicle} onClose={() => setIsAssignmentOpen(false)} onChanged={refreshAfterAssignment} />}
     {activePlaybackTrip && <TripPlaybackModal trip={activePlaybackTrip} vehicle={vehicles.find((v) => v.regNumber === activePlaybackTrip.vehicleReg)} onClose={() => setActivePlaybackTrip(null)} />}
     {isMobileModalOpen && <DriverMobileModal vehicle={selectedVehicle || filteredVehicles[0] || vehicles[0]} onClose={() => setIsMobileModalOpen(false)} onTriggerSOS={handleTriggerSOS} />}
   </div>;
