@@ -101,6 +101,20 @@ telemetryIngestRouter.post('/telemetry', async (req, res, next) => {
       payload: { telemetryId, vehicleId, deviceId, latitude, longitude, speedKmh: speed, heading, ignition, odometerKm, fuelLitres, status },
     });
 
+    const generatedAlerts = await db.query<{
+      id: string; type: string; severity: string; title: string; message: string; occurred_at: Date;
+    }>(
+      `SELECT id, type, severity, title, message, occurred_at FROM alerts
+       WHERE vehicle_id = $1 AND occurred_at = $2 ORDER BY occurred_at`, [vehicleId, recordedAt],
+    );
+    for (const alert of generatedAlerts.rows) {
+      publishFleetEvent({
+        type: 'alert.created',
+        occurredAt: alert.occurred_at.toISOString(),
+        payload: { id: alert.id, vehicleId, type: alert.type, severity: alert.severity, title: alert.title, message: alert.message },
+      });
+    }
+
     res.status(202).json({ accepted: true, telemetryId, vehicleId, status });
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('Invalid ')) return res.status(400).json({ error: error.message });
