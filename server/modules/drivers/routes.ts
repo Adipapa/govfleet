@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import { db } from '../../db/client.js';
 import { requireAuth } from '../../middleware/auth.js';
 import { requirePermission } from '../../middleware/rbac.js';
@@ -7,7 +7,7 @@ import { writeAudit } from '../audit/audit.js';
 export const driversRouter = Router();
 driversRouter.use(requireAuth);
 
-function scope(req: Parameters<typeof requirePermission>[0]) {
+function scope(req: Request) {
   if (!req.auth) throw new Error('Authentication required');
   if (req.auth.roles.includes('super_admin')) return { clause: 'TRUE', params: [] as unknown[] };
   if (!req.auth.agencyId) return { clause: 'FALSE', params: [] as unknown[] };
