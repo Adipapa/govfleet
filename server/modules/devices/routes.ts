@@ -12,6 +12,8 @@ devicesRouter.get('/', requirePermission('devices.read'), async (req, res, next)
   try {
     const scope = vehicleScope(req, 'v');
     const params = [...scope.params];
+    const isSuperAdmin = req.auth!.roles.includes('super_admin');
+    const where = isSuperAdmin ? 'TRUE' : `v.id IS NOT NULL AND ${scope.clause}`;
     const result = await db.query(`
       SELECT d.id, d.device_identifier, d.serial_number, d.manufacturer, d.model, d.protocol,
              d.firmware_version, d.status, d.last_heartbeat_at, v.id AS vehicle_id,
@@ -20,7 +22,7 @@ devicesRouter.get('/', requirePermission('devices.read'), async (req, res, next)
       LEFT JOIN vehicle_device_assignments va ON va.device_id = d.id
         AND va.starts_at <= now() AND (va.ends_at IS NULL OR va.ends_at > now())
       LEFT JOIN vehicles v ON v.id = va.vehicle_id
-      WHERE v.id IS NULL OR ${scope.clause}
+      WHERE ${where}
       ORDER BY d.device_identifier`, params);
     res.json({ data: result.rows });
   } catch (error) { next(error); }
