@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import App from './App';
-import { getAccessToken, getCurrentUser, type ApiUser } from './services/api';
+import { clearAccessToken, getAccessToken, getCurrentUser, type ApiUser } from './services/api';
 import { LoginScreen } from './components/LoginScreen';
 
 export const AuthGate: React.FC = () => {
@@ -19,6 +19,7 @@ export const AuthGate: React.FC = () => {
         if (mounted) setUser(currentUser);
       })
       .catch(() => {
+        clearAccessToken();
         if (mounted) setUser(null);
       })
       .finally(() => {
