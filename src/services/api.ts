@@ -26,6 +26,21 @@ export type AlertListResponse = {
   pagination: { page: number; limit: number; total: number; pages: number };
 };
 
+export type DriverApiRow = {
+  id: string; employee_number: string | null; full_name: string; phone: string | null;
+  licence_number: string | null; licence_expiry: string | null; active: boolean;
+};
+
+export type DriverAssignment = {
+  id: string; vehicle_id: string; driver_id: string; starts_at: string; ends_at: string | null;
+  assigned_by: string | null; started: boolean; active: boolean;
+  employee_number: string | null; full_name: string; phone: string | null;
+  licence_number: string | null; licence_expiry: string | null;
+};
+
+export type DriverListResponse = { data: DriverApiRow[] };
+export type DriverAssignmentResponse = { data: DriverAssignment[] };
+
 export function getAccessToken(): string | null { return sessionStorage.getItem(TOKEN_KEY); }
 export function setAccessToken(token: string): void { sessionStorage.setItem(TOKEN_KEY, token); }
 export function clearAccessToken(): void { sessionStorage.removeItem(TOKEN_KEY); }
@@ -88,6 +103,28 @@ export async function acknowledgeAlert(id: string) {
   return request(`/alerts/${encodeURIComponent(id)}/acknowledge`, { method: 'POST' });
 }
 
+export async function getDrivers(search = '') {
+  const query = new URLSearchParams();
+  if (search.trim()) query.set('search', search.trim());
+  return request<DriverListResponse>(`/drivers${query.toString() ? `?${query.toString()}` : ''}`);
+}
+
+export async function getVehicleDriverAssignments(vehicleId: string) {
+  return request<DriverAssignmentResponse>(`/assignments/vehicles/${encodeURIComponent(vehicleId)}`);
+}
+
+export async function assignDriverToVehicle(vehicleId: string, driverId: string, startsAt?: string, endsAt?: string) {
+  return request<{ data: DriverAssignment }>(`/assignments/vehicles/${encodeURIComponent(vehicleId)}/driver`, {
+    method: 'POST', body: JSON.stringify({ driverId, ...(startsAt ? { startsAt } : {}), ...(endsAt ? { endsAt } : {}) }),
+  });
+}
+
+export async function endDriverVehicleAssignment(assignmentId: string, endsAt?: string) {
+  return request<{ data: DriverAssignment }>(`/assignments/${encodeURIComponent(assignmentId)}/end`, {
+    method: 'POST', body: JSON.stringify(endsAt ? { endsAt } : {}),
+  });
+}
+
 export function mapVehicle(row: VehicleApiRow, telemetry?: Record<string, unknown>): Vehicle {
   const fuelType = row.fuel_type === 'Petrol' ? 'Petrol' : 'Diesel';
   const status = ['moving','stopped','idling','parked','offline','no_gps','emergency','unauthorized'].includes(row.status)
@@ -113,7 +150,6 @@ export function mapVehicle(row: VehicleApiRow, telemetry?: Record<string, unknow
 
 export type FleetEvent = { type: 'connected' | 'telemetry.updated' | 'alert.created' | 'vehicle.updated'; occurredAt: string; payload: Record<string, unknown> };
 
-/** Fetch-based SSE keeps the access token out of the URL because EventSource cannot send Authorization headers. */
 export function subscribeToFleetEvents(onEvent: (event: FleetEvent) => void, onError?: (error: Error) => void) {
   const controller = new AbortController(); const token = getAccessToken();
   if (!token) { onError?.(new Error('Authentication required for realtime events')); return () => controller.abort(); }
