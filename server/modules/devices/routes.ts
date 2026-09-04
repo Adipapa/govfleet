@@ -4,6 +4,7 @@ import { requireAuth } from '../../middleware/auth.js';
 import { requirePermission } from '../../middleware/rbac.js';
 import { vehicleScope } from '../../middleware/scope.js';
 import { writeAudit } from '../audit/audit.js';
+import { issueDeviceToken } from './credentials.js';
 
 export const devicesRouter = Router();
 devicesRouter.use(requireAuth);
@@ -42,6 +43,23 @@ devicesRouter.post('/', requirePermission('devices.write'), async (req, res, nex
     if ((error as { code?: string }).code === '23505') return res.status(409).json({ error: 'Device identifier already exists' });
     next(error);
   }
+});
+
+devicesRouter.post('/:id/credentials', requirePermission('devices.write'), async (req, res, next) => {
+  try {
+    const scope = vehicleScope(req, 'v');
+    const params = [...scope.params, req.params.id];
+    const device = await db.query(`SELECT d.id FROM devices d
+      JOIN vehicle_device_assignments va ON va.device_id = d.id AND va.starts_at <= now() AND (va.ends_at IS NULL OR va.ends_at > now())
+      JOIN vehicles v ON v.id = va.vehicle_id
+      WHERE d.id = $${params.length} AND ${scope.clause}`, params);
+    if (!device.rows[0] && !req.auth!.roles.includes('super_admin')) return res.status(404).json({ error: 'Device not found or outside your scope' });
+    const exists = await db.query('SELECT id FROM devices WHERE id = $1', [req.params.id]);
+    if (!exists.rows[0]) return res.status(404).json({ error: 'Device not found' });
+    const token = await issueDeviceToken(req.params.id);
+    await writeAudit(req, 'device.credential.rotate', 'device', req.params.id, 'success');
+    res.status(201).json({ token, warning: 'Store this token securely. It will not be shown again.' });
+  } catch (error) { next(error); }
 });
 
 devicesRouter.post('/:id/assign', requirePermission('devices.write'), async (req, res, next) => {
