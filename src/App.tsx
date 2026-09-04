@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { UserRound } from 'lucide-react';
 import { TelemetryEngine } from './services/telemetryEngine';
-import { getVehicles, getLatestTelemetry, getAlerts, mapVehicle, subscribeToFleetEvents, acknowledgeAlert as apiAcknowledgeAlert, logout as apiLogout, type ApiUser } from './services/api';
+import { getVehicles, getLatestTelemetry, getAlerts, mapVehicle, subscribeToFleetEvents, acknowledgeAlert as apiAcknowledgeAlert, logout as apiLogout, type ApiUser, type FleetEvent } from './services/api';
 import { Vehicle, Geofence, AlertEvent, Trip, FuelLogEvent, MaintenanceItem, AuditLog, GovernmentAgency } from './types/fleet';
 import { Sidebar } from './components/Sidebar';
 import { MapView } from './components/MapView';
@@ -27,6 +27,52 @@ function mapApiAlert(row: any): AlertEvent {
     type: row.type, severity: row.severity, title: String(row.title || row.type), message: String(row.message || ''), timestamp: String(row.occurredAt),
     location: { lat: Number(row.metadata?.latitude || 0), lng: Number(row.metadata?.longitude || 0), address: '' },
     acknowledged: Boolean(row.acknowledgedAt), dispatchedToPolice: Boolean(row.metadata?.dispatchedToPolice),
+  };
+}
+
+const VEHICLE_STATUSES: Vehicle['status'][] = ['moving', 'stopped', 'idling', 'parked', 'offline', 'no_gps', 'emergency', 'unauthorized'];
+
+function asBoolean(value: unknown, fallback: boolean): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    if (value.toLowerCase() === 'true') return true;
+    if (value.toLowerCase() === 'false') return false;
+  }
+  return fallback;
+}
+
+function applyTelemetryEvent(vehicle: Vehicle, event: FleetEvent): Vehicle {
+  const payload = event.payload;
+  const latitude = Number(payload.latitude);
+  const longitude = Number(payload.longitude);
+  const speedKmh = Number(payload.speedKmh);
+  const heading = Number(payload.heading);
+  const odometerKm = Number(payload.odometerKm);
+  const fuelLitres = Number(payload.fuelLitres);
+  const status = typeof payload.status === 'string' && VEHICLE_STATUSES.includes(payload.status as Vehicle['status'])
+    ? payload.status as Vehicle['status']
+    : vehicle.status;
+  const ignition = asBoolean(payload.ignition, vehicle.ignition);
+  const fuel = Number.isFinite(fuelLitres) ? fuelLitres : vehicle.currentFuelLiters;
+
+  return {
+    ...vehicle,
+    status,
+    currentLocation: {
+      ...vehicle.currentLocation,
+      lat: Number.isFinite(latitude) ? latitude : vehicle.currentLocation.lat,
+      lng: Number.isFinite(longitude) ? longitude : vehicle.currentLocation.lng,
+    },
+    speedKmh: Number.isFinite(speedKmh) ? speedKmh : vehicle.speedKmh,
+    heading: Number.isFinite(heading) ? heading : vehicle.heading,
+    ignition,
+    mileageKm: Number.isFinite(odometerKm) ? odometerKm : vehicle.mileageKm,
+    currentFuelLiters: fuel,
+    currentFuelPercentage: vehicle.tankCapacityLiters > 0
+      ? Math.max(0, Math.min(100, Math.round((fuel / vehicle.tankCapacityLiters) * 100)))
+      : vehicle.currentFuelPercentage,
+    gpsStatus: 'Connected',
+    lastCommunication: event.occurredAt,
   };
 }
 
@@ -69,8 +115,23 @@ export function App({ authUser }: { authUser: ApiUser }) {
   useEffect(() => {
     void loadFleet();
     const unsubscribe = subscribeToFleetEvents((event) => {
-      if (event.type === 'telemetry.updated' || event.type === 'vehicle.updated') void loadFleet();
-      if (event.type === 'alert.created') setAlerts((current) => [mapApiAlert(event.payload), ...current].slice(0, 100));
+      if (event.type === 'telemetry.updated') {
+        const vehicleId = String(event.payload.vehicleId || '');
+        if (!vehicleId) return;
+        setVehicles((current) => current.map((vehicle) => (
+          vehicle.id === vehicleId ? applyTelemetryEvent(vehicle, event) : vehicle
+        )));
+        return;
+      }
+
+      if (event.type === 'vehicle.updated') {
+        void loadFleet();
+        return;
+      }
+
+      if (event.type === 'alert.created') {
+        setAlerts((current) => [mapApiAlert(event.payload), ...current].slice(0, 100));
+      }
     }, (error) => console.error('QTS realtime stream error', error));
     return unsubscribe;
   }, []);
