@@ -7,6 +7,7 @@
     "dev": "vite",
     "dev:api": "tsx watch server/server.ts",
     "db:migrate": "tsx server/db/migrate.ts",
+    "db:seed-admin": "tsx server/db/seed-admin.ts",
     "build": "vite build",
     "build:api": "tsc -p tsconfig.server.json",
     "preview": "vite preview",
