@@ -25,15 +25,11 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, expires_at DESC);
 CREATE INDEX IF NOT EXISTS idx_sessions_active ON sessions(expires_at) WHERE revoked_at IS NULL;
 
-ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS session_id UUID REFERENCES sessions(id) ON DELETE SET NULL;
-ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS resource_type TEXT;
-ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS resource_id TEXT;
-ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS result TEXT NOT NULL DEFAULT 'success';
 ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS reason TEXT;
 ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb;
 
-CREATE INDEX IF NOT EXISTS idx_audit_user_time ON audit_logs(user_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_user_time ON audit_logs(user_id, occurred_at DESC);
 
 INSERT INTO roles(name, description) VALUES
   ('super_admin', 'National platform administrator'),
