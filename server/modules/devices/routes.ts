@@ -29,6 +29,25 @@ devicesRouter.get('/', requirePermission('devices.read'), async (req, res, next)
   } catch (error) { next(error); }
 });
 
+devicesRouter.get('/vehicles/:vehicleId', requirePermission('devices.read'), async (req, res, next) => {
+  try {
+    const scope = vehicleScope(req, 'v');
+    const params = [...scope.params, req.params.vehicleId];
+    const result = await db.query(`
+      SELECT d.id, d.device_identifier, d.serial_number, d.manufacturer, d.model, d.protocol,
+             d.firmware_version, d.status, d.last_heartbeat_at, va.starts_at, va.ends_at,
+             v.id AS vehicle_id, v.registration_number
+      FROM devices d
+      JOIN vehicle_device_assignments va ON va.device_id = d.id
+        AND va.starts_at <= now() AND (va.ends_at IS NULL OR va.ends_at > now())
+      JOIN vehicles v ON v.id = va.vehicle_id
+      WHERE v.id = $${scope.nextIndex} AND ${scope.clause}
+      LIMIT 1`, params);
+    if (!result.rows[0]) return res.status(404).json({ error: 'No active device assignment found for this vehicle' });
+    res.json({ data: result.rows[0] });
+  } catch (error) { next(error); }
+});
+
 devicesRouter.post('/', requirePermission('devices.write'), async (req, res, next) => {
   try {
     const b = req.body ?? {};
