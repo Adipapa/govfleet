@@ -12,7 +12,6 @@ function validDate(value: unknown): value is string {
   return typeof value === 'string' && !Number.isNaN(Date.parse(value));
 }
 
-// List the current and historical driver assignments for a vehicle.
 assignmentsRouter.get('/vehicles/:vehicleId', requirePermission('fleet.read'), async (req, res, next) => {
   try {
     const scope = vehicleScope(req);
@@ -31,8 +30,6 @@ assignmentsRouter.get('/vehicles/:vehicleId', requirePermission('fleet.read'), a
   } catch (error) { next(error); }
 });
 
-// Assign a driver to a vehicle. Existing assignment is automatically closed when
-// the new assignment starts now, while future schedules remain explicit.
 assignmentsRouter.post('/vehicles/:vehicleId/driver', requirePermission('fleet.write'), async (req, res, next) => {
   const client = await db.connect();
   try {
@@ -51,25 +48,13 @@ assignmentsRouter.post('/vehicles/:vehicleId/driver', requirePermission('fleet.w
     const vehicle = await client.query(`SELECT id, agency_id, department_id FROM vehicles v WHERE v.id = $${vehicleParams.length} AND ${scope.clause} AND v.active = TRUE FOR UPDATE`, vehicleParams);
     if (!vehicle.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Vehicle not found' }); }
 
-    const driver = await client.query(`SELECT id, active FROM drivers WHERE id = $1 FOR SHARE`, [b.driverId]);
+    const driver = await client.query(`SELECT id, agency_id, active FROM drivers WHERE id = $1 FOR SHARE`, [b.driverId]);
     if (!driver.rows[0] || !driver.rows[0].active) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Active driver not found' }); }
-
-    // Drivers are not globally agency-owned in the current schema. Require the
-    // driver to belong to this agency through an existing or this assignment's
-    // vehicle history, preventing cross-agency assignment by non-super-admins.
-    if (!req.auth!.roles.includes('super_admin')) {
-      const driverScope = await client.query(`
-        SELECT 1 FROM vehicle_driver_assignments vda
-        JOIN vehicles v ON v.id = vda.vehicle_id
-        WHERE vda.driver_id = $1 AND v.agency_id = $2 LIMIT 1`, [b.driverId, vehicle.rows[0].agency_id]);
-      if (!driverScope.rows[0]) {
-        await client.query('ROLLBACK');
-        return res.status(403).json({ error: 'Driver is outside your agency scope' });
-      }
+    if (driver.rows[0].agency_id !== vehicle.rows[0].agency_id) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Driver and vehicle must belong to the same agency' });
     }
 
-    // If assignment starts now (or in the past), close the currently active
-    // assignment for this vehicle at the new start time.
     if (startsAt <= new Date()) {
       await client.query(`
         UPDATE vehicle_driver_assignments
@@ -95,7 +80,6 @@ assignmentsRouter.post('/vehicles/:vehicleId/driver', requirePermission('fleet.w
   } finally { client.release(); }
 });
 
-// End an active assignment. The historical record is retained for reporting.
 assignmentsRouter.post('/:id/end', requirePermission('fleet.write'), async (req, res, next) => {
   try {
     if (req.body?.endsAt !== undefined && !validDate(req.body.endsAt)) return res.status(400).json({ error: 'endsAt must be a valid date' });
@@ -118,7 +102,6 @@ assignmentsRouter.post('/:id/end', requirePermission('fleet.write'), async (req,
   } catch (error) { next(error); }
 });
 
-// Driver-centric view for the driver portal and driver safety workflows.
 assignmentsRouter.get('/drivers/:driverId', requirePermission('drivers.read'), async (req, res, next) => {
   try {
     const s = req.auth!.roles.includes('super_admin')
