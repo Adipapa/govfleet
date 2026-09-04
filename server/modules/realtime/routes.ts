@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
-import { authenticateRequest } from '../../middleware/auth.js';
+import { requireAuth } from '../../middleware/auth.js';
 import { subscribeFleetEvents, type FleetEvent } from '../../realtime/eventBus.js';
 
 export const realtimeRouter = Router();
@@ -10,7 +10,7 @@ function writeEvent(res: Response, event: FleetEvent): void {
   res.write(`data: ${JSON.stringify(event)}\n\n`);
 }
 
-realtimeRouter.get('/events', authenticateRequest, (req: Request, res: Response) => {
+realtimeRouter.get('/events', requireAuth, (req: Request, res: Response) => {
   res.status(200);
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
