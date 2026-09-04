@@ -1,5 +1,11 @@
--- Prevent overlapping active/historical assignments for the same vehicle.
--- A vehicle may have only one driver at any point in time.
+-- Driver ownership is explicit so agency-scoped users cannot move drivers
+-- between agencies merely because a historical assignment exists.
+ALTER TABLE drivers
+  ADD COLUMN IF NOT EXISTS agency_id UUID REFERENCES agencies(id) ON DELETE RESTRICT;
+
+CREATE INDEX IF NOT EXISTS idx_drivers_agency ON drivers(agency_id);
+
+-- Prevent overlapping assignments for the same vehicle.
 CREATE EXTENSION IF NOT EXISTS btree_gist;
 
 ALTER TABLE vehicle_driver_assignments
