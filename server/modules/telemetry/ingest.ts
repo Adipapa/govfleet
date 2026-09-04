@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { db } from '../../db/client.js';
 import { authenticateDevice } from '../devices/credentials.js';
+import { processTelemetry } from './processor.js';
 
 export const telemetryIngestRouter = Router();
 
@@ -23,6 +24,15 @@ function validCoordinate(latitude: number, longitude: number) {
   return Number.isFinite(latitude) && Number.isFinite(longitude) && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;
 }
 
+function optionalNumber(value: unknown, name: string, min?: number, max?: number): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || (min !== undefined && parsed < min) || (max !== undefined && parsed > max)) {
+    throw new Error(`Invalid ${name}`);
+  }
+  return parsed;
+}
+
 telemetryIngestRouter.post('/telemetry', async (req, res, next) => {
   try {
     const deviceIdentifier = req.header('x-device-id');
@@ -37,6 +47,16 @@ telemetryIngestRouter.post('/telemetry', async (req, res, next) => {
     const longitude = Number(b.longitude);
     if (!validCoordinate(latitude, longitude)) return res.status(400).json({ error: 'Valid latitude and longitude are required' });
 
+    const speed = optionalNumber(b.speedKmh, 'speedKmh', 0, 350);
+    const heading = optionalNumber(b.heading, 'heading', 0, 360);
+    const odometerKm = optionalNumber(b.odometerKm, 'odometerKm', 0, 10_000_000);
+    const fuelLitres = optionalNumber(b.fuelLitres, 'fuelLitres', 0, 10_000);
+    const batteryVoltage = optionalNumber(b.batteryVoltage, 'batteryVoltage', 0, 100);
+    const satellites = optionalNumber(b.satellites, 'satellites', 0, 100);
+    const gsmSignal = optionalNumber(b.gsmSignal, 'gsmSignal', 0, 100);
+    const ignition = b.ignition === undefined ? null : Boolean(b.ignition);
+    const status = speed !== null && speed > 3 ? 'moving' : ignition ? 'idling' : 'stopped';
+
     const assignment = await db.query<{ vehicle_id: string }>(
       `SELECT vehicle_id FROM vehicle_device_assignments
        WHERE device_id = $1 AND starts_at <= now() AND (ends_at IS NULL OR ends_at > now())
@@ -46,12 +66,12 @@ telemetryIngestRouter.post('/telemetry', async (req, res, next) => {
 
     const recordedAt = b.recordedAt ? new Date(b.recordedAt) : new Date();
     if (Number.isNaN(recordedAt.getTime())) return res.status(400).json({ error: 'Invalid recordedAt timestamp' });
-
-    const speed = b.speedKmh === undefined ? null : Number(b.speedKmh);
-    const ignition = b.ignition === undefined ? null : Boolean(b.ignition);
-    const status = speed !== null && speed > 3 ? 'moving' : ignition ? 'idling' : 'stopped';
+    const now = Date.now();
+    if (recordedAt.getTime() > now + 5 * 60_000) return res.status(400).json({ error: 'Telemetry timestamp is too far in the future' });
+    if (recordedAt.getTime() < now - 30 * 24 * 60 * 60_000) return res.status(400).json({ error: 'Telemetry timestamp is too old' });
 
     const client = await db.connect();
+    let telemetryId: string;
     try {
       await client.query('BEGIN');
       const telemetry = await client.query<{ id: string }>(`INSERT INTO telemetry
@@ -59,24 +79,42 @@ telemetryIngestRouter.post('/telemetry', async (req, res, next) => {
          odometer_km, fuel_litres, battery_voltage, satellites, gsm_signal, raw_payload)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`, [
         deviceId, vehicleId, recordedAt, latitude, longitude,
-        speed, b.heading === undefined ? null : Number(b.heading), ignition,
-        b.odometerKm === undefined ? null : Number(b.odometerKm),
-        b.fuelLitres === undefined ? null : Number(b.fuelLitres),
-        b.batteryVoltage === undefined ? null : Number(b.batteryVoltage),
-        b.satellites === undefined ? null : Number(b.satellites),
-        b.gsmSignal === undefined ? null : Number(b.gsmSignal),
+        speed, heading, ignition, odometerKm, fuelLitres, batteryVoltage, satellites, gsmSignal,
         b.rawPayload ?? {},
       ]);
+      telemetryId = telemetry.rows[0].id;
 
       await client.query(`UPDATE devices SET status = 'active', last_heartbeat_at = now(), updated_at = now() WHERE id = $1`, [deviceId]);
-      await client.query(`UPDATE vehicles SET status = $1, odometer_km = COALESCE($2, odometer_km), updated_at = now() WHERE id = $3`, [status, b.odometerKm ?? null, vehicleId]);
+      await client.query(`UPDATE vehicles SET status = $1, odometer_km = COALESCE($2, odometer_km), updated_at = now() WHERE id = $3`, [status, odometerKm, vehicleId]);
       await client.query('COMMIT');
-      res.status(202).json({ accepted: true, telemetryId: telemetry.rows[0].id, vehicleId, status });
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
     } finally { client.release(); }
-  } catch (error) { next(error); }
+
+    try {
+      await processTelemetry({
+        telemetryId,
+        vehicleId,
+        recordedAt,
+        latitude,
+        longitude,
+        speedKmh: speed,
+        heading,
+        ignition,
+        odometerKm,
+        fuelLitres,
+      });
+    } catch (processingError) {
+      // Telemetry must remain accepted even if a secondary analytics rule fails.
+      console.error('Telemetry processing failed', { telemetryId, vehicleId, error: processingError });
+    }
+
+    res.status(202).json({ accepted: true, telemetryId, vehicleId, status });
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Invalid ')) return res.status(400).json({ error: error.message });
+    next(error);
+  }
 });
 
 export default telemetryIngestRouter;
