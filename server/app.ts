@@ -9,6 +9,8 @@ import driversRouter from './modules/drivers/routes.js';
 import devicesRouter from './modules/devices/routes.js';
 import telemetryIngestRouter from './modules/telemetry/ingest.js';
 import telemetryRouter from './modules/telemetry/routes.js';
+import alertsRouter from './modules/alerts/routes.js';
+import { realtimeRouter } from './modules/realtime/routes.js';
 
 export const app = express();
 
@@ -36,6 +38,8 @@ app.use('/api/v1/vehicles', fleetRouter);
 app.use('/api/v1/drivers', driversRouter);
 app.use('/api/v1/devices', devicesRouter);
 app.use('/api/v1/telemetry', telemetryRouter);
+app.use('/api/v1/alerts', alertsRouter);
+app.use('/api/v1/realtime', realtimeRouter);
 app.use('/api/v1/ingest', telemetryIngestRouter);
 
 app.use((_req, res) => {
