@@ -11,6 +11,7 @@ export type AuthUser = {
   fullName: string;
   agencyId: string | null;
   departmentId: string | null;
+  driverId: string | null;
   roles: string[];
   permissions: string[];
 };
@@ -25,17 +26,13 @@ function signToken(userId: string, sessionId: string) {
   return jwt.sign({ sub: userId, sid: sessionId }, env.jwtSecret, { expiresIn: `${SESSION_DAYS}d` });
 }
 
-export async function authenticate(usernameOrEmail: string, password: string, ip?: string, userAgent?: string) {
+async function loadUser(userId: string): Promise<AuthUser | null> {
   const result = await db.query<{
-    id: string; username: string; email: string; full_name: string; password_hash: string;
-    status: string; agency_id: string | null; department_id: string | null;
-  }>(`SELECT id, username, email, full_name, password_hash, status, agency_id, department_id
-      FROM users WHERE lower(username) = lower($1) OR lower(email) = lower($1) LIMIT 1`, [usernameOrEmail]);
-
+    id: string; username: string; email: string; full_name: string;
+    agency_id: string | null; department_id: string | null; driver_id: string | null; status: string;
+  }>(`SELECT id, username, email, full_name, agency_id, department_id, driver_id, status FROM users WHERE id = $1`, [userId]);
   const user = result.rows[0];
-  if (!user || user.status !== 'active' || !(await bcrypt.compare(password, user.password_hash))) {
-    return null;
-  }
+  if (!user || user.status !== 'active') return null;
 
   const roles = await db.query<{ name: string }>(
     `SELECT r.name FROM roles r JOIN user_roles ur ON ur.role_id = r.id WHERE ur.user_id = $1 ORDER BY r.name`, [user.id]);
@@ -43,6 +40,22 @@ export async function authenticate(usernameOrEmail: string, password: string, ip
     `SELECT DISTINCT p.name FROM permissions p
      JOIN role_permissions rp ON rp.permission_id = p.id
      JOIN user_roles ur ON ur.role_id = rp.role_id WHERE ur.user_id = $1 ORDER BY p.name`, [user.id]);
+
+  return {
+    id: user.id, username: user.username, email: user.email, fullName: user.full_name,
+    agencyId: user.agency_id, departmentId: user.department_id, driverId: user.driver_id,
+    roles: roles.rows.map((r) => r.name), permissions: permissions.rows.map((p) => p.name),
+  };
+}
+
+export async function authenticate(usernameOrEmail: string, password: string, ip?: string, userAgent?: string) {
+  const result = await db.query<{
+    id: string; username: string; email: string; password_hash: string; status: string;
+  }>(`SELECT id, username, email, password_hash, status
+      FROM users WHERE lower(username) = lower($1) OR lower(email) = lower($1) LIMIT 1`, [usernameOrEmail]);
+
+  const user = result.rows[0];
+  if (!user || user.status !== 'active' || !(await bcrypt.compare(password, user.password_hash))) return null;
 
   const sessionId = crypto.randomUUID();
   const token = signToken(user.id, sessionId);
@@ -52,9 +65,9 @@ export async function authenticate(usernameOrEmail: string, password: string, ip
                   VALUES ($1,$2,$3,$4,$5,$6)`, [sessionId, user.id, tokenHash(token), expiresAt, ip ?? null, userAgent ?? null]);
   await db.query('UPDATE users SET last_login_at = now() WHERE id = $1', [user.id]);
 
-  return { token, user: { id: user.id, username: user.username, email: user.email, fullName: user.full_name,
-    agencyId: user.agency_id, departmentId: user.department_id,
-    roles: roles.rows.map((r) => r.name), permissions: permissions.rows.map((p) => p.name) } satisfies AuthUser };
+  const authUser = await loadUser(user.id);
+  if (!authUser) return null;
+  return { token, user: authUser };
 }
 
 export async function verifyToken(token: string): Promise<AuthUser | null> {
@@ -63,22 +76,11 @@ export async function verifyToken(token: string): Promise<AuthUser | null> {
     if (!payload.sub || !payload.sid) return null;
     const session = await db.query<{ user_id: string }>(
       `SELECT user_id FROM sessions WHERE id = $1 AND token_hash = $2 AND revoked_at IS NULL AND expires_at > now()`,
-      [payload.sid, tokenHash(token)]);
-    if (!session.rows[0]) return null;
-
-    const result = await db.query<{ id: string; username: string; email: string; full_name: string; agency_id: string | null; department_id: string | null; status: string }>(
-      `SELECT id, username, email, full_name, agency_id, department_id, status FROM users WHERE id = $1`, [payload.sub]);
-    const user = result.rows[0];
-    if (!user || user.status !== 'active') return null;
-
-    const roles = await db.query<{ name: string }>(`SELECT r.name FROM roles r JOIN user_roles ur ON ur.role_id = r.id WHERE ur.user_id = $1`, [user.id]);
-    const permissions = await db.query<{ name: string }>(
-      `SELECT DISTINCT p.name FROM permissions p JOIN role_permissions rp ON rp.permission_id = p.id JOIN user_roles ur ON ur.role_id = rp.role_id WHERE ur.user_id = $1`, [user.id]);
+      [payload.sid, tokenHash(token)],
+    );
+    if (!session.rows[0] || session.rows[0].user_id !== payload.sub) return null;
     await db.query('UPDATE sessions SET last_seen_at = now() WHERE id = $1', [payload.sid]);
-
-    return { id: user.id, username: user.username, email: user.email, fullName: user.full_name,
-      agencyId: user.agency_id, departmentId: user.department_id,
-      roles: roles.rows.map((r) => r.name), permissions: permissions.rows.map((p) => p.name) };
+    return loadUser(payload.sub);
   } catch {
     return null;
   }
