@@ -1,0 +1,6 @@
+{
+  "name": "QTS Government Fleet GPS Tracking & Fleet Intelligence Platform",
+  "description": "Centralized government fleet GPS tracking, telematics, fuel monitoring, geofencing, driver safety scoring, and multi-agency intelligence system.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
