@@ -4,6 +4,9 @@ import helmet from 'helmet';
 import { env } from './config/env.js';
 import { db } from './db/client.js';
 import { authRouter } from './modules/auth/routes.js';
+import fleetRouter from './modules/fleet/routes.js';
+import driversRouter from './modules/drivers/routes.js';
+import devicesRouter from './modules/devices/routes.js';
 
 export const app = express();
 
@@ -27,6 +30,9 @@ app.get('/api/v1', (_req, res) => {
 });
 
 app.use('/api/v1/auth', authRouter);
+app.use('/api/v1/vehicles', fleetRouter);
+app.use('/api/v1/drivers', driversRouter);
+app.use('/api/v1/devices', devicesRouter);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not Found' });
