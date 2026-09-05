@@ -2,9 +2,10 @@ import { Router } from 'express';
 import { db } from '../../db/client.js';
 import { authenticateDevice } from '../devices/credentials.js';
 import { processTelemetry } from './processor.js';
+import { analyzeFuel } from '../fuel/engine.js';
 import { publishFleetEvent } from '../../realtime/eventBus.js';
 
-export const telemetryIngestRouter = Router();
+aexport const telemetryIngestRouter = Router();
 
 type TelemetryPayload = {
   recordedAt?: string;
@@ -91,6 +92,7 @@ telemetryIngestRouter.post('/telemetry', async (req, res, next) => {
 
     try {
       await processTelemetry({ telemetryId, vehicleId, recordedAt, latitude, longitude, speedKmh: speed, heading, ignition, odometerKm, fuelLitres });
+      await analyzeFuel({ telemetryId, vehicleId, recordedAt, latitude, longitude, speedKmh: speed, ignition, odometerKm, fuelLitres });
     } catch (processingError) {
       console.error('Telemetry processing failed', { telemetryId, vehicleId, error: processingError });
     }
