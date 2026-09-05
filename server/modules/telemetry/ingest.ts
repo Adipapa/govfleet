@@ -5,7 +5,7 @@ import { processTelemetry } from './processor.js';
 import { analyzeFuel } from '../fuel/engine.js';
 import { publishFleetEvent } from '../../realtime/eventBus.js';
 
-aexport const telemetryIngestRouter = Router();
+export const telemetryIngestRouter = Router();
 
 type TelemetryPayload = {
   recordedAt?: string;
