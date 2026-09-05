@@ -12,6 +12,7 @@ export type AuthUser = {
   agencyId: string | null;
   departmentId: string | null;
   driverId: string | null;
+  sessionId: string;
   roles: string[];
   permissions: string[];
 };
@@ -26,7 +27,7 @@ function signToken(userId: string, sessionId: string) {
   return jwt.sign({ sub: userId, sid: sessionId }, env.jwtSecret, { expiresIn: `${SESSION_DAYS}d` });
 }
 
-async function loadUser(userId: string): Promise<AuthUser | null> {
+async function loadUser(userId: string, sessionId: string): Promise<AuthUser | null> {
   const result = await db.query<{
     id: string; username: string; email: string; full_name: string;
     agency_id: string | null; department_id: string | null; driver_id: string | null; status: string;
@@ -44,6 +45,7 @@ async function loadUser(userId: string): Promise<AuthUser | null> {
   return {
     id: user.id, username: user.username, email: user.email, fullName: user.full_name,
     agencyId: user.agency_id, departmentId: user.department_id, driverId: user.driver_id,
+    sessionId,
     roles: roles.rows.map((r) => r.name), permissions: permissions.rows.map((p) => p.name),
   };
 }
@@ -65,7 +67,7 @@ export async function authenticate(usernameOrEmail: string, password: string, ip
                   VALUES ($1,$2,$3,$4,$5,$6)`, [sessionId, user.id, tokenHash(token), expiresAt, ip ?? null, userAgent ?? null]);
   await db.query('UPDATE users SET last_login_at = now() WHERE id = $1', [user.id]);
 
-  const authUser = await loadUser(user.id);
+  const authUser = await loadUser(user.id, sessionId);
   if (!authUser) return null;
   return { token, user: authUser };
 }
@@ -80,7 +82,7 @@ export async function verifyToken(token: string): Promise<AuthUser | null> {
     );
     if (!session.rows[0] || session.rows[0].user_id !== payload.sub) return null;
     await db.query('UPDATE sessions SET last_seen_at = now() WHERE id = $1', [payload.sid]);
-    return loadUser(payload.sub);
+    return loadUser(payload.sub, payload.sid);
   } catch {
     return null;
   }
