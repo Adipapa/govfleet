@@ -8,7 +8,15 @@ import { writeAudit } from '../audit/audit.js';
 export const maintenanceRouter = Router();
 maintenanceRouter.use(requireAuth);
 
-const SELECT = `mr.id, mr.vehicle_id, v.registration_number, mr.category, mr.status, mr.priority,
+const EFFECTIVE_STATUS = `CASE
+  WHEN mr.status IN ('completed','cancelled','in_progress') THEN mr.status
+  WHEN mr.due_at IS NOT NULL AND mr.due_at < CURRENT_DATE THEN 'overdue'
+  WHEN mr.due_odometer_km IS NOT NULL AND v.odometer_km >= mr.due_odometer_km THEN 'overdue'
+  WHEN mr.due_at IS NOT NULL AND mr.due_at <= CURRENT_DATE + INTERVAL '30 days' THEN 'due_soon'
+  WHEN mr.due_odometer_km IS NOT NULL AND v.odometer_km >= mr.due_odometer_km - 1000 THEN 'due_soon'
+  ELSE mr.status
+END`;
+const SELECT = `mr.id, mr.vehicle_id, v.registration_number, mr.category, ${EFFECTIVE_STATUS} AS status, mr.priority,
   mr.due_at, mr.due_odometer_km, mr.performed_at, mr.odometer_km, mr.estimated_cost, mr.actual_cost,
   mr.service_provider, mr.notes, mr.interval_km, mr.interval_days, mr.completed_by, mr.created_at, mr.updated_at`;
 
@@ -17,7 +25,7 @@ maintenanceRouter.get('/', requirePermission('fleet.read'), async (req, res, nex
     const scope = vehicleScope(req, 'v');
     const params: unknown[] = [...scope.params];
     const conditions = [scope.clause];
-    if (req.query.status) { params.push(String(req.query.status)); conditions.push(`mr.status = $${params.length}`); }
+    if (req.query.status) { params.push(String(req.query.status)); conditions.push(`(${EFFECTIVE_STATUS}) = $${params.length}`); }
     if (req.query.vehicleId) { params.push(String(req.query.vehicleId)); conditions.push(`mr.vehicle_id = $${params.length}`); }
     const limit = Math.min(Math.max(Number(req.query.limit ?? 100), 1), 500);
     params.push(limit);
@@ -30,11 +38,11 @@ maintenanceRouter.get('/summary', requirePermission('fleet.read'), async (req, r
   try {
     const scope = vehicleScope(req, 'v');
     const result = await db.query(`SELECT COUNT(mr.id)::int AS total,
-      COUNT(*) FILTER (WHERE mr.status='overdue')::int AS overdue,
-      COUNT(*) FILTER (WHERE mr.status='due_soon')::int AS due_soon,
-      COUNT(*) FILTER (WHERE mr.status='scheduled')::int AS scheduled,
-      COUNT(*) FILTER (WHERE mr.status='in_progress')::int AS in_progress,
-      COUNT(*) FILTER (WHERE mr.status='completed')::int AS completed,
+      COUNT(*) FILTER (WHERE (${EFFECTIVE_STATUS})='overdue')::int AS overdue,
+      COUNT(*) FILTER (WHERE (${EFFECTIVE_STATUS})='due_soon')::int AS due_soon,
+      COUNT(*) FILTER (WHERE (${EFFECTIVE_STATUS})='scheduled')::int AS scheduled,
+      COUNT(*) FILTER (WHERE (${EFFECTIVE_STATUS})='in_progress')::int AS in_progress,
+      COUNT(*) FILTER (WHERE (${EFFECTIVE_STATUS})='completed')::int AS completed,
       COALESCE(SUM(COALESCE(mr.actual_cost,mr.estimated_cost)),0) AS cost
       FROM maintenance_records mr JOIN vehicles v ON v.id=mr.vehicle_id WHERE ${scope.clause}`, scope.params);
     res.json({ data: result.rows[0] });
