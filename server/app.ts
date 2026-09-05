@@ -14,6 +14,7 @@ import telemetryRouter from './modules/telemetry/routes.js';
 import alertsRouter from './modules/alerts/routes.js';
 import { realtimeRouter } from './modules/realtime/routes.js';
 import fuelRouter from './modules/fuel/routes.js';
+import maintenanceRouter from './modules/maintenance/routes.js';
 
 export const app = express();
 
@@ -47,6 +48,7 @@ app.use('/api/v1/alerts', alertsRouter);
 app.use('/api/v1/realtime', realtimeRouter);
 app.use('/api/v1/ingest', telemetryIngestRouter);
 app.use('/api/v1/fuel', fuelRouter);
+app.use('/api/v1/maintenance', maintenanceRouter);
 
 app.use((_req, res) => {
   res.status(404).json({ error: 'Not Found' });
