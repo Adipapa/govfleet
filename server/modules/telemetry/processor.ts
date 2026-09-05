@@ -193,24 +193,9 @@ export async function processTelemetry(point: Point): Promise<void> {
     await createAlert(point, driverId, 'after_hours_movement', 'medium', 'After-hours movement', 'Vehicle movement detected outside the configured operating hours.', { speedKmh: speed });
   }
 
-  if (point.fuelLitres !== null && previous?.fuelLitres !== null && previous?.fuelLitres !== undefined) {
-    const fuelDelta = point.fuelLitres - previous.fuelLitres;
-    if (fuelDelta > 10) {
-      await db.query(
-        `INSERT INTO fuel_events(vehicle_id, event_type, occurred_at, before_litres, after_litres, delta_litres, latitude, longitude, metadata)
-         VALUES ($1,'refuel',$2,$3,$4,$5,$6,$7,$8)`,
-        [point.vehicleId, point.recordedAt, previous.fuelLitres, point.fuelLitres, fuelDelta, point.latitude, point.longitude, { source: 'telemetry', confidence: 'pending' }],
-      );
-    } else if (fuelDelta < -10 && speed <= MOVING_KMH) {
-      await db.query(
-        `INSERT INTO fuel_events(vehicle_id, event_type, occurred_at, before_litres, after_litres, delta_litres, latitude, longitude, metadata)
-         VALUES ($1,'theft',$2,$3,$4,$5,$6,$7,$8)`,
-        [point.vehicleId, point.recordedAt, previous.fuelLitres, point.fuelLitres, fuelDelta, point.latitude, point.longitude, { source: 'telemetry', confidence: 'pending' }],
-      );
-      await createAlert(point, driverId, 'fuel_theft', 'high', 'Possible fuel theft', `Fuel level dropped by ${Math.abs(fuelDelta).toFixed(1)} litres while the vehicle was stationary.`, { deltaLitres: fuelDelta });
-    }
-  }
-
+  // Fuel anomalies are handled exclusively by the Fuel Intelligence Engine.
+  // Keeping fuel detection out of this general telemetry processor prevents duplicate
+  // fuel-theft/refuel alerts and gives the fuel module one authoritative rule set.
   await processGeofences(point);
 
   await db.query(
