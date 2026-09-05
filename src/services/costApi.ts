@@ -3,22 +3,13 @@ import { getAccessToken } from './api';
 const API_BASE_URL = (import.meta.env.VITE_API_URL || '/api/v1').replace(/\/$/, '');
 export type CostSummary = { vehicles:number; fuel_litres:number; fuel_cost:number; maintenance_cost:number; total_cost:number; distance_km:number; cost_per_km:number; fuel_cost_per_km:number; maintenance_cost_per_km:number; open_fuel_anomalies:number; from:string|null; to:string|null };
 export type VehicleCost = { id:string; registration_number:string; asset_number:string|null; fuel_cost:number|string; fuel_litres:number|string; maintenance_cost:number|string; total_cost:number|string; distance_km:number|string; cost_per_km:number|string; fuel_cost_per_km:number|string; open_fuel_anomalies:number|string };
-export type RoiResult = {
-  baselineAnnualCost:number;
-  implementationCost:number;
-  periodStart:string;
-  periodEnd:string;
-  observedCost:number;
-  annualizedCurrentCost:number;
-  annualSavings:number;
-  netAnnualBenefit:number;
-  roiPercent:number;
-  paybackMonths:number|null;
-  positiveRoi:boolean;
-  fuelActual:number;
-  maintenanceActual:number;
-};
-async function request<T>(path:string):Promise<T>{const token=getAccessToken();const response=await fetch(`${API_BASE_URL}${path}`,{headers:{Accept:'application/json',...(token?{Authorization:`Bearer ${token}`}:{})}});if(!response.ok)throw new Error((await response.text())||`Request failed (${response.status})`);return response.json() as Promise<T>;}
+export type RoiResult = { baselineAnnualCost:number; implementationCost:number; periodStart:string; periodEnd:string; observedCost:number; annualizedCurrentCost:number; annualSavings:number; netAnnualBenefit:number; roiPercent:number; paybackMonths:number|null; positiveRoi:boolean; fuelActual:number; maintenanceActual:number };
+export type Budget = { id:string; agency_id:string|null; department_id:string|null; name:string; period_start:string; period_end:string; fuel_budget:number|string; maintenance_budget:number|string; total_budget:number|string; notes:string|null };
+export type BudgetPerformance = { budget:Budget; fuelActual:number; maintenanceActual:number; totalActual:number; fuelVariance:number; maintenanceVariance:number; totalVariance:number; fuelVariancePct:number; maintenanceVariancePct:number; totalVariancePct:number; overBudget:boolean };
+async function request<T>(path:string, options:RequestInit={}){const token=getAccessToken();const response=await fetch(`${API_BASE_URL}${path}`,{...options,headers:{Accept:'application/json','Content-Type':'application/json',...(token?{Authorization:`Bearer ${token}`}:{})}});if(!response.ok)throw new Error((await response.text())||`Request failed (${response.status})`);return response.status===204?undefined as T:response.json() as Promise<T>;}
 export async function getCostSummary(params:{from?:string;to?:string}={}){const q=new URLSearchParams();if(params.from)q.set('from',params.from);if(params.to)q.set('to',params.to);return request<{data:CostSummary}>(`/cost/summary?${q}`);}
 export async function getVehicleCosts(params:{from?:string;to?:string}={}){const q=new URLSearchParams();if(params.from)q.set('from',params.from);if(params.to)q.set('to',params.to);return request<{data:VehicleCost[]}>(`/cost/vehicles?${q}`);}
 export async function getRoi(params:{baselineAnnualCost:number;implementationCost:number;from?:string;to?:string}){const q=new URLSearchParams({baselineAnnualCost:String(params.baselineAnnualCost),implementationCost:String(params.implementationCost)});if(params.from)q.set('from',params.from);if(params.to)q.set('to',params.to);return request<{data:RoiResult}>(`/cost/roi?${q}`);}
+export async function getBudgets(params:{agencyId?:string;departmentId?:string}={}){const q=new URLSearchParams();if(params.agencyId)q.set('agencyId',params.agencyId);if(params.departmentId)q.set('departmentId',params.departmentId);return request<{data:Budget[]}>(`/cost/budgets?${q}`);}
+export async function createBudget(payload:{agencyId?:string|null;departmentId?:string|null;name:string;periodStart:string;periodEnd:string;fuelBudget:number;maintenanceBudget:number;notes?:string}){return request<{data:Budget}>('/cost/budgets',{method:'POST',body:JSON.stringify(payload)});}
+export async function getBudgetPerformance(id:string){return request<{data:BudgetPerformance}>(`/cost/budgets/${id}/performance`);}
