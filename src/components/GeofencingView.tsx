@@ -1,318 +1,43 @@
-import React, { useState } from 'react';
-import { 
-  Shield, 
-  MapPin, 
-  Plus, 
-  AlertTriangle, 
-  Check, 
-  Trash2, 
-  Eye, 
-  Building2, 
-  Lock, 
-  Compass,
-  AlertCircle
-} from 'lucide-react';
-import { Geofence, GovernmentAgency } from '../types/fleet';
+import React, { useEffect, useState } from 'react';
+import { Eye, MapPin, Plus, RefreshCw, Shield, Trash2 } from 'lucide-react';
+import { createGeofence, deleteGeofence, getGeofences, type GeofenceApiRow } from '../services/geofenceApi';
 
-interface GeofencingViewProps {
-  geofences: Geofence[];
-  onAddGeofence: (newGeo: Geofence) => void;
-  onDeleteGeofence: (id: string) => void;
-  onViewOnMap: () => void;
-}
+export const GeofencingView: React.FC<{ onViewOnMap: () => void }> = ({ onViewOnMap }) => {
+  const [geofences, setGeofences] = useState<GeofenceApiRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [showCreate, setShowCreate] = useState(false);
+  const [name, setName] = useState('');
+  const [category, setCategory] = useState('government');
+  const [speed, setSpeed] = useState('40');
+  const [lat, setLat] = useState('13.4549');
+  const [lng, setLng] = useState('-16.5790');
+  const [radius, setRadius] = useState('500');
+  const [restricted, setRestricted] = useState(false);
+  const [entry, setEntry] = useState(true);
+  const [exit, setExit] = useState(true);
 
-export const GeofencingView: React.FC<GeofencingViewProps> = ({
-  geofences,
-  onAddGeofence,
-  onDeleteGeofence,
-  onViewOnMap,
-}) => {
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newZoneName, setNewZoneName] = useState('');
-  const [newCategory, setNewCategory] = useState<Geofence['category']>('Government Office');
-  const [newDepartment, setNewDepartment] = useState<GovernmentAgency | 'All Agencies'>('All Agencies');
-  const [speedLimit, setSpeedLimit] = useState<number>(40);
-  const [isRestricted, setIsRestricted] = useState<boolean>(false);
-  const [alertEntry, setAlertEntry] = useState<boolean>(true);
-  const [alertExit, setAlertExit] = useState<boolean>(true);
-  const [centerLat, setCenterLat] = useState<number>(13.44);
-  const [centerLng, setCenterLng] = useState<number>(-16.65);
+  const load = async () => { setLoading(true); setError(''); try { setGeofences((await getGeofences()).data); } catch (e) { setError(e instanceof Error ? e.message : 'Unable to load geofences.'); } finally { setLoading(false); } };
+  useEffect(() => { void load(); }, []);
 
-  const handleCreate = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newZoneName.trim()) return;
-
-    // Create a bounding box polygon around the center point
-    const delta = 0.006;
-    const coords: [number, number][] = [
-      [centerLat + delta, centerLng - delta],
-      [centerLat + delta, centerLng + delta],
-      [centerLat - delta, centerLng + delta],
-      [centerLat - delta, centerLng - delta],
-    ];
-
-    const newGeo: Geofence = {
-      id: `geo-${Date.now()}`,
-      name: newZoneName,
-      category: newCategory,
-      coordinates: coords,
-      center: [centerLat, centerLng],
-      departmentScope: newDepartment,
-      alertOnEntry: alertEntry,
-      alertOnExit: alertExit,
-      restrictedZone: isRestricted,
-      speedLimitKmh: speedLimit,
-    };
-
-    onAddGeofence(newGeo);
-    setShowCreateModal(false);
-    setNewZoneName('');
+  const create = async (event: React.FormEvent) => {
+    event.preventDefault(); setError('');
+    try {
+      const result = await createGeofence({ name, category, speedLimitKmh: Number(speed), centerLat: Number(lat), centerLng: Number(lng), radiusM: Number(radius), restricted, alertOnEntry: entry, alertOnExit: exit });
+      setGeofences(current => [...current, result.data].sort((a,b) => a.name.localeCompare(b.name)));
+      setShowCreate(false); setName('');
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to create geofence.'); }
   };
 
-  return (
-    <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-950 text-slate-100 space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-800 pb-4 gap-4">
-        <div>
-          <div className="flex items-center space-x-2">
-            <div className="p-1.5 rounded-lg bg-cyan-950/80 border border-cyan-800 text-cyan-400">
-              <Shield className="w-5 h-5" />
-            </div>
-            <h1 className="text-xl font-bold text-white tracking-tight">
-              Government Geofencing & Perimeter Security Engine
-            </h1>
-            <span className="text-xs px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 font-mono border border-cyan-800">
-              {geofences.length} ACTIVE PERIMETERS
-            </span>
-          </div>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">
-            Define administrative borders, ministries, hospitals, restricted security zones, and statutory speed perimeters.
-          </p>
-        </div>
+  const remove = async (id: string) => { if (!window.confirm('Deactivate this geofence?')) return; try { await deleteGeofence(id); setGeofences(current => current.filter(item => item.id !== id)); } catch (e) { setError(e instanceof Error ? e.message : 'Unable to deactivate geofence.'); } };
 
-        <div className="flex items-center space-x-2">
-          <button
-            id="btn-open-create-geofence"
-            onClick={() => setShowCreateModal(true)}
-            className="flex items-center space-x-1.5 px-3.5 py-2 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold text-xs rounded-lg transition-colors shadow-lg cursor-pointer"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create Geofence Zone</span>
-          </button>
+  return <div className="h-full overflow-y-auto p-4 sm:p-6 bg-slate-50 text-slate-900 space-y-5">
+    <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-4"><div><div className="flex items-center gap-2 text-cyan-700"><Shield className="w-5 h-5"/><span className="text-[10px] uppercase tracking-wider font-mono font-semibold">Operations Control</span></div><h1 className="text-2xl font-bold text-slate-950 mt-1">Geofence Zones</h1><p className="text-xs text-slate-500 mt-1">Administrative and security boundaries stored in the fleet database.</p></div><div className="flex gap-2"><button onClick={() => void load()} className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600"><RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`}/></button><button onClick={() => setShowCreate(true)} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-cyan-600 text-white text-xs font-semibold"><Plus className="w-4 h-4"/>Create Zone</button><button onClick={onViewOnMap} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-semibold"><Eye className="w-4 h-4"/>Map</button></div></header>
+    {error && <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">{error}</div>}
+    {loading ? <div className="rounded-xl border border-slate-200 bg-white p-8 text-center text-xs text-slate-500">Loading geofence records…</div> : geofences.length === 0 ? <div className="rounded-xl border border-slate-200 bg-white p-8 text-center"><MapPin className="w-7 h-7 mx-auto text-slate-300"/><div className="mt-2 text-sm font-semibold text-slate-700">No active geofences</div><p className="text-xs text-slate-500 mt-1">Create a zone to begin recording boundary events.</p></div> : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">{geofences.map(geo => <section key={geo.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex justify-between gap-3"><div><h2 className="text-sm font-bold text-slate-900">{geo.name}</h2><p className="text-[10px] text-slate-500 mt-1">{geo.category}</p></div><span className={`px-2 py-1 rounded text-[10px] font-semibold ${geo.restricted ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>{geo.restricted ? 'Restricted' : 'Active'}</span></div><div className="grid grid-cols-2 gap-2 mt-4 text-xs"><Metric label="Center" value={`${Number(geo.center_lat).toFixed(4)}, ${Number(geo.center_lng).toFixed(4)}`}/><Metric label="Radius" value={`${Number(geo.radius_m).toLocaleString()} m`}/><Metric label="Speed limit" value={geo.speed_limit_kmh ? `${geo.speed_limit_kmh} km/h` : 'None'}/><Metric label="Entry / Exit" value={`${geo.alert_on_entry ? 'On' : 'Off'} / ${geo.alert_on_exit ? 'On' : 'Off'}`}/></div><div className="mt-4 pt-3 border-t border-slate-100 flex justify-end"><button onClick={() => void remove(geo.id)} className="inline-flex items-center gap-1 text-[11px] text-rose-600 hover:text-rose-700"><Trash2 className="w-3.5 h-3.5"/>Deactivate</button></div></section>)}</div>}
 
-          <button
-            id="btn-geofence-map-view"
-            onClick={onViewOnMap}
-            className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
-          >
-            <Eye className="w-4 h-4 text-cyan-400" />
-            <span>View All On Map</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Geofence Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {geofences.map((geo) => (
-          <div 
-            key={geo.id} 
-            className={`p-4 rounded-xl border transition-all ${
-              geo.restrictedZone 
-                ? 'bg-red-950/20 border-red-900/60 hover:border-red-600' 
-                : 'bg-slate-900 border-slate-800 hover:border-slate-700'
-            }`}
-          >
-            <div className="flex items-start justify-between">
-              <div>
-                <span className="font-bold text-sm text-white block">{geo.name}</span>
-                <span className="text-[11px] text-slate-400">{geo.departmentScope || 'All Agencies'}</span>
-              </div>
-              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                geo.restrictedZone ? 'bg-red-900/60 text-red-300 border border-red-700' :
-                geo.category === 'Hospital' ? 'bg-cyan-950 text-cyan-300 border border-cyan-800' :
-                'bg-blue-950 text-blue-300 border border-blue-800'
-              }`}>
-                {geo.category}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 mt-4 p-2.5 bg-slate-950/60 rounded-lg text-xs font-mono">
-              <div>
-                <span className="text-[10px] text-slate-500 uppercase block">Speed Limit</span>
-                <span className="text-white font-bold">{geo.speedLimitKmh} km/h</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-500 uppercase block">Security Clearance</span>
-                <span className={geo.restrictedZone ? 'text-red-400 font-bold' : 'text-emerald-400 font-bold'}>
-                  {geo.restrictedZone ? 'RESTRICTED' : 'PUBLIC GOV'}
-                </span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-500 uppercase block">Entry Alert</span>
-                <span className={geo.alertOnEntry ? 'text-cyan-300 font-semibold' : 'text-slate-500'}>
-                  {geo.alertOnEntry ? 'ENABLED' : 'MUTED'}
-                </span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-500 uppercase block">Exit Alert</span>
-                <span className={geo.alertOnExit ? 'text-cyan-300 font-semibold' : 'text-slate-500'}>
-                  {geo.alertOnExit ? 'ENABLED' : 'MUTED'}
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-4 pt-3 border-t border-slate-800/80 flex items-center justify-between text-xs">
-              <span className="text-[10px] text-slate-500 font-mono">
-                Lat: {geo.center[0].toFixed(4)}, Lng: {geo.center[1].toFixed(4)}
-              </span>
-              <button
-                id={`btn-delete-geo-${geo.id}`}
-                onClick={() => onDeleteGeofence(geo.id)}
-                title="Delete Geofence"
-                className="p-1 rounded text-slate-500 hover:text-red-400 transition-colors"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Create Modal */}
-      {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
-          <div className="w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl space-y-4">
-            <h2 className="text-base font-bold text-white">Create Government Geofencing Zone</h2>
-            <form onSubmit={handleCreate} className="space-y-3 text-xs">
-              <div>
-                <label className="text-slate-300 block mb-1">Zone Title / Landmark</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Banjul Port Container Terminal"
-                  value={newZoneName}
-                  onChange={(e) => setNewZoneName(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-slate-300 block mb-1">Category</label>
-                  <select
-                    value={newCategory}
-                    onChange={(e) => setNewCategory(e.target.value as any)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
-                  >
-                    <option value="Government Office">Government Office</option>
-                    <option value="Hospital">Hospital</option>
-                    <option value="Police Station">Police Station</option>
-                    <option value="Airport">Airport</option>
-                    <option value="Fuel Depot">Fuel Depot</option>
-                    <option value="Restricted Zone">Restricted Zone</option>
-                    <option value="Border Post">Border Post</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-slate-300 block mb-1">Department Scope</label>
-                  <select
-                    value={newDepartment}
-                    onChange={(e) => setNewDepartment(e.target.value as any)}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white"
-                  >
-                    <option value="All Agencies">All Agencies</option>
-                    <option value="Ministry of Transport">Ministry of Transport</option>
-                    <option value="Ministry of Health">Ministry of Health</option>
-                    <option value="Gambia Police Force">Gambia Police Force</option>
-                    <option value="State House VIP Fleet">State House VIP Fleet</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="text-slate-300 block mb-1">Speed Limit (km/h)</label>
-                  <input
-                    type="number"
-                    value={speedLimit}
-                    onChange={(e) => setSpeedLimit(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-300 block mb-1">Center Lat</label>
-                  <input
-                    type="number"
-                    step="0.0001"
-                    value={centerLat}
-                    onChange={(e) => setCenterLat(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="text-slate-300 block mb-1">Center Lng</label>
-                  <input
-                    type="number"
-                    step="0.0001"
-                    value={centerLng}
-                    onChange={(e) => setCenterLng(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="pt-2 space-y-2">
-                <label className="flex items-center space-x-2 text-slate-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={isRestricted}
-                    onChange={(e) => setIsRestricted(e.target.checked)}
-                    className="rounded bg-slate-950 border-slate-700 text-red-500 focus:ring-0"
-                  />
-                  <span>Mark as High-Security Restricted Military/State Zone</span>
-                </label>
-
-                <label className="flex items-center space-x-2 text-slate-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={alertEntry}
-                    onChange={(e) => setAlertEntry(e.target.checked)}
-                    className="rounded bg-slate-950 border-slate-700 text-cyan-500 focus:ring-0"
-                  />
-                  <span>Dispatch Alert on Vehicle Entry</span>
-                </label>
-
-                <label className="flex items-center space-x-2 text-slate-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={alertExit}
-                    onChange={(e) => setAlertExit(e.target.checked)}
-                    className="rounded bg-slate-950 border-slate-700 text-cyan-500 focus:ring-0"
-                  />
-                  <span>Dispatch Alert on Vehicle Exit</span>
-                </label>
-              </div>
-
-              <div className="pt-4 flex items-center justify-end space-x-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold rounded-lg"
-                >
-                  Deploy Geofence
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+    {showCreate && <div className="fixed inset-0 z-50 bg-slate-950/40 flex items-center justify-center p-4"><form onSubmit={create} className="w-full max-w-lg rounded-2xl bg-white border border-slate-200 shadow-2xl p-6 space-y-4"><h2 className="text-lg font-bold text-slate-900">Create Geofence Zone</h2><div><label className="text-xs font-semibold text-slate-600">Name</label><input required value={name} onChange={e => setName(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 text-sm" placeholder="e.g. Government Complex"/></div><div className="grid grid-cols-2 gap-3"><Field label="Category" value={category} onChange={setCategory} options={['government','police','hospital','airport','restricted','fuel_depot']}/><Field label="Speed limit" value={speed} onChange={setSpeed} suffix="km/h"/><Field label="Latitude" value={lat} onChange={setLat}/><Field label="Longitude" value={lng} onChange={setLng}/><Field label="Radius" value={radius} onChange={setRadius} suffix="m"/></div><label className="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" checked={restricted} onChange={e => setRestricted(e.target.checked)}/> Restricted zone</label><div className="grid grid-cols-2 gap-3"><label className="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" checked={entry} onChange={e => setEntry(e.target.checked)}/> Alert on entry</label><label className="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" checked={exit} onChange={e => setExit(e.target.checked)}/> Alert on exit</label></div><div className="flex justify-end gap-2 pt-2"><button type="button" onClick={() => setShowCreate(false)} className="px-4 py-2 rounded-lg border border-slate-200 text-xs">Cancel</button><button type="submit" className="px-4 py-2 rounded-lg bg-cyan-600 text-white text-xs font-semibold">Create Zone</button></div></form></div>}
+  </div>;
 };
+function Metric({label,value}:{label:string;value:string}){return <div className="rounded-lg bg-slate-50 border border-slate-100 p-2"><div className="text-[9px] uppercase text-slate-400">{label}</div><div className="mt-1 text-[11px] font-mono text-slate-800">{value}</div></div>}
+function Field({label,value,onChange,suffix,options}:{label:string;value:string;onChange:(v:string)=>void;suffix?:string;options?:string[]}){return <label className="text-xs font-semibold text-slate-600">{label}{options ? <select value={value} onChange={e=>onChange(e.target.value)} className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 bg-white font-normal">{options.map(o=><option key={o}>{o}</option>)}</select> : <div className="mt-1 flex"><input value={value} onChange={e=>onChange(e.target.value)} className="w-full px-3 py-2 rounded-l-lg border border-slate-200 font-normal"/>{suffix&&<span className="px-2 py-2 border border-l-0 border-slate-200 rounded-r-lg text-[10px] text-slate-400">{suffix}</span>}</div>}</label>}
