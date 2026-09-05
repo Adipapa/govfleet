@@ -41,7 +41,10 @@ fuelRouter.post('/vehicles/:vehicleId/refuels', requirePermission('fleet.write')
 fuelRouter.get('/summary', requirePermission('fleet.read'), async (req, res, next) => {
   try {
     const scope = vehicleScope(req);
-    const result = await db.query("SELECT COUNT(*)::int AS transactions, COALESCE(SUM(ft.quantity_litres),0) AS litres, COALESCE(SUM(ft.total_cost),0) AS cost, COUNT(DISTINCT ft.vehicle_id)::int AS vehicles FROM fuel_transactions ft JOIN vehicles v ON v.id=ft.vehicle_id WHERE " + scope.clause + " AND ft.transaction_type='refuel' AND ft.occurred_at >= COALESCE($1::timestamptz, date_trunc('month',now())) AND ft.occurred_at < COALESCE($2::timestamptz, now())", [req.query.from || null, req.query.to || null, ...scope.params]);
+    const params = [...scope.params, req.query.from || null, req.query.to || null];
+    const fromIndex = scope.params.length + 1;
+    const toIndex = scope.params.length + 2;
+    const result = await db.query("SELECT COUNT(*)::int AS transactions, COALESCE(SUM(ft.quantity_litres),0) AS litres, COALESCE(SUM(ft.total_cost),0) AS cost, COUNT(DISTINCT ft.vehicle_id)::int AS vehicles FROM fuel_transactions ft JOIN vehicles v ON v.id=ft.vehicle_id WHERE " + scope.clause + " AND ft.transaction_type='refuel' AND ft.occurred_at >= COALESCE($" + fromIndex + "::timestamptz, date_trunc('month',now())) AND ft.occurred_at < COALESCE($" + toIndex + "::timestamptz, now())", params);
     res.json({ data: result.rows[0] });
   } catch (error) { next(error); }
 });
