@@ -83,4 +83,41 @@ router.get('/vehicles', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+router.get('/roi', async (req, res, next) => {
+  try {
+    const baselineAnnualCost = Number(req.query.baselineAnnualCost);
+    const implementationCost = Number(req.query.implementationCost);
+    if (!Number.isFinite(baselineAnnualCost) || baselineAnnualCost < 0) return res.status(400).json({ error: 'baselineAnnualCost must be a non-negative number' });
+    if (!Number.isFinite(implementationCost) || implementationCost <= 0) return res.status(400).json({ error: 'implementationCost must be greater than zero' });
+
+    const scope = vehicleScope(req, 'v');
+    const { from, to } = dateRange(req);
+    const periodStart = from ? new Date(from) : new Date(new Date().getFullYear(), 0, 1);
+    const periodEnd = to ? new Date(to) : new Date();
+    if (Number.isNaN(periodStart.getTime()) || Number.isNaN(periodEnd.getTime()) || periodEnd <= periodStart) return res.status(400).json({ error: 'Invalid ROI date range' });
+
+    const result = await db.query(`
+      SELECT
+        COALESCE((SELECT SUM(ft.total_cost) FROM fuel_transactions ft WHERE EXISTS (SELECT 1 FROM vehicles v2 WHERE v2.id=ft.vehicle_id AND ${scope.clause.replaceAll('v.', 'v2.')}) AND ft.occurred_at >= $${scope.nextIndex} AND ft.occurred_at < $${scope.nextIndex + 1}),0) AS fuel_actual,
+        COALESCE((SELECT SUM(m.actual_cost) FROM maintenance_records m WHERE EXISTS (SELECT 1 FROM vehicles v2 WHERE v2.id=m.vehicle_id AND ${scope.clause.replaceAll('v.', 'v2.')}) AND m.status='completed' AND m.performed_at >= $${scope.nextIndex} AND m.performed_at < $${scope.nextIndex + 1}),0) AS maintenance_actual
+    `, [...scope.params, periodStart, new Date(periodEnd.getTime() + 86400000)]);
+
+    const row = result.rows[0] || {};
+    const actualCost = Number(row.fuel_actual || 0) + Number(row.maintenance_actual || 0);
+    const days = Math.max(1, (periodEnd.getTime() - periodStart.getTime()) / 86400000);
+    const annualizedCurrentCost = actualCost * 365 / days;
+    const annualSavings = baselineAnnualCost - annualizedCurrentCost;
+    const netAnnualBenefit = annualSavings - implementationCost;
+    const roiPercent = (netAnnualBenefit / implementationCost) * 100;
+    const paybackMonths = annualSavings > 0 ? implementationCost / annualSavings * 12 : null;
+
+    res.json({ data: {
+      baselineAnnualCost, implementationCost, periodStart: periodStart.toISOString(), periodEnd: periodEnd.toISOString(),
+      observedCost: actualCost, annualizedCurrentCost, annualSavings, netAnnualBenefit,
+      roiPercent, paybackMonths, positiveRoi: roiPercent > 0,
+      fuelActual: Number(row.fuel_actual || 0), maintenanceActual: Number(row.maintenance_actual || 0)
+    }});
+  } catch (error) { next(error); }
+});
+
 export default router;
