@@ -16,6 +16,7 @@ import { realtimeRouter } from './modules/realtime/routes.js';
 import fuelRouter from './modules/fuel/routes.js';
 import maintenanceRouter from './modules/maintenance/routes.js';
 import costRouter from './modules/cost/routes.js';
+import budgetRouter from './modules/cost/budgetRoutes.js';
 
 export const app = express();
 
@@ -43,5 +44,6 @@ app.use('/api/v1/ingest', telemetryIngestRouter);
 app.use('/api/v1/fuel', fuelRouter);
 app.use('/api/v1/maintenance', maintenanceRouter);
 app.use('/api/v1/cost', costRouter);
+app.use('/api/v1/cost', budgetRouter);
 app.use((_req, res) => { res.status(404).json({ error: 'Not Found' }); });
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => { console.error(err); res.status(500).json({ error: 'Internal server error' }); });
