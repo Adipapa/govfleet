@@ -13,7 +13,7 @@ type TelemetryPayload = {
   longitude: number;
   speedKmh?: number;
   heading?: number;
-  ignition?: boolean;
+  ignition?: boolean | string | number;
   odometerKm?: number;
   fuelLitres?: number;
   batteryVoltage?: number;
@@ -31,6 +31,18 @@ function optionalNumber(value: unknown, name: string, min?: number, max?: number
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || (min !== undefined && parsed < min) || (max !== undefined && parsed > max)) throw new Error(`Invalid ${name}`);
   return parsed;
+}
+
+function optionalBoolean(value: unknown, name: string): boolean | null {
+  if (value === undefined || value === null || value === '') return null;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number' && (value === 0 || value === 1)) return value === 1;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+  }
+  throw new Error(`Invalid ${name}`);
 }
 
 telemetryIngestRouter.post('/telemetry', async (req, res, next) => {
@@ -53,7 +65,7 @@ telemetryIngestRouter.post('/telemetry', async (req, res, next) => {
     const batteryVoltage = optionalNumber(b.batteryVoltage, 'batteryVoltage', 0, 100);
     const satellites = optionalNumber(b.satellites, 'satellites', 0, 100);
     const gsmSignal = optionalNumber(b.gsmSignal, 'gsmSignal', 0, 100);
-    const ignition = b.ignition === undefined ? null : Boolean(b.ignition);
+    const ignition = optionalBoolean(b.ignition, 'ignition');
     const status = speed !== null && speed > 3 ? 'moving' : ignition ? 'idling' : 'stopped';
 
     const assignment = await db.query<{ vehicle_id: string }>(
