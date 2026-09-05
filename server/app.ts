@@ -17,6 +17,8 @@ import fuelRouter from './modules/fuel/routes.js';
 import maintenanceRouter from './modules/maintenance/routes.js';
 import costRouter from './modules/cost/routes.js';
 import budgetRouter from './modules/cost/budgetRoutes.js';
+import { intelligenceRouter } from './modules/intelligence/routes.js';
+import { reportsRouter } from './modules/reports/routes.js';
 
 export const app = express();
 
@@ -30,6 +32,16 @@ app.get('/health', async (_req, res) => {
   try { await db.query('SELECT 1'); res.json({ status: 'ok', database: 'ok', service: 'qts-govfleet-api' }); }
   catch { res.status(503).json({ status: 'degraded', database: 'unavailable', service: 'qts-govfleet-api' }); }
 });
+
+app.get('/ready', async (_req, res) => {
+  try {
+    await db.query('SELECT 1');
+    res.json({ status: 'ready', database: 'ok' });
+  } catch {
+    res.status(503).json({ status: 'not_ready', database: 'unavailable' });
+  }
+});
+
 app.get('/api/v1', (_req, res) => { res.json({ name: 'QTS Government Fleet API', version: 'v1' }); });
 app.use('/api/v1/auth', authRouter);
 app.use('/api/v1/vehicles', fleetRouter);
@@ -45,5 +57,7 @@ app.use('/api/v1/fuel', fuelRouter);
 app.use('/api/v1/maintenance', maintenanceRouter);
 app.use('/api/v1/cost', costRouter);
 app.use('/api/v1/cost', budgetRouter);
+app.use('/api/v1/intelligence', intelligenceRouter);
+app.use('/api/v1/reports', reportsRouter);
 app.use((_req, res) => { res.status(404).json({ error: 'Not Found' }); });
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => { console.error(err); res.status(500).json({ error: 'Internal server error' }); });
