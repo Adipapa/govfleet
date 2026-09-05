@@ -29,8 +29,7 @@ maintenanceRouter.get('/', requirePermission('fleet.read'), async (req, res, nex
 maintenanceRouter.get('/summary', requirePermission('fleet.read'), async (req, res, next) => {
   try {
     const scope = vehicleScope(req, 'v');
-    const result = await db.query(`SELECT
-      COUNT(mr.id)::int AS total,
+    const result = await db.query(`SELECT COUNT(mr.id)::int AS total,
       COUNT(*) FILTER (WHERE mr.status='overdue')::int AS overdue,
       COUNT(*) FILTER (WHERE mr.status='due_soon')::int AS due_soon,
       COUNT(*) FILTER (WHERE mr.status='scheduled')::int AS scheduled,
@@ -53,7 +52,7 @@ maintenanceRouter.post('/', requirePermission('fleet.write'), async (req, res, n
     if (dueAt && Number.isNaN(Date.parse(String(dueAt)))) return res.status(400).json({ error: 'dueAt must be a valid date' });
     const cost = estimatedCost == null ? null : Number(estimatedCost);
     if (cost != null && (!Number.isFinite(cost) || cost < 0)) return res.status(400).json({ error: 'estimatedCost must be zero or greater' });
-    const result = await db.query(`INSERT INTO maintenance_records (vehicle_id,category,status,priority,due_at,due_odometer_km,estimated_cost,service_provider,notes,interval_km,interval_days,updated_at) VALUES ($1,'scheduled',$2,$3,$4,$5,$6,$7,$8,$9,$10,now()) RETURNING id`, [vehicleId, category, priority, dueAt ?? null, dueOdometerKm ?? null, cost, serviceProvider ?? null, notes ?? null, intervalKm ?? null, intervalDays ?? null]);
+    const result = await db.query(`INSERT INTO maintenance_records (vehicle_id,category,status,priority,due_at,due_odometer_km,estimated_cost,service_provider,notes,interval_km,interval_days,updated_at) VALUES ($1,$2,'scheduled',$3,$4,$5,$6,$7,$8,$9,$10,now()) RETURNING id`, [vehicleId, category, priority, dueAt ?? null, dueOdometerKm ?? null, cost, serviceProvider ?? null, notes ?? null, intervalKm ?? null, intervalDays ?? null]);
     const row = await db.query(`SELECT ${SELECT} FROM maintenance_records mr JOIN vehicles v ON v.id=mr.vehicle_id WHERE mr.id=$1`, [result.rows[0].id]);
     await writeAudit(req, 'maintenance.create', 'maintenance_record', result.rows[0].id, 'success');
     res.status(201).json({ data: row.rows[0] });
@@ -66,8 +65,11 @@ maintenanceRouter.patch('/:id/status', requirePermission('fleet.write'), async (
     const { status } = req.body ?? {};
     const allowed = ['scheduled','in_progress','completed','cancelled','overdue','due_soon'];
     if (!allowed.includes(status)) return res.status(400).json({ error: 'Invalid maintenance status' });
-    const params = [...scope.params, req.params.id, status];
-    const result = await db.query(`UPDATE maintenance_records mr SET status=$${params.length}, performed_at=CASE WHEN $${params.length}='completed' THEN COALESCE(mr.performed_at,CURRENT_DATE) ELSE mr.performed_at END, completed_by=CASE WHEN $${params.length}='completed' THEN $${scope.params.length + 3} ELSE mr.completed_by END, updated_at=now() FROM vehicles v WHERE mr.vehicle_id=v.id AND mr.id=$${scope.params.length + 1} AND ${scope.clause} RETURNING mr.id`, [...scope.params, req.params.id, status, req.auth!.id]);
+    const idIndex = scope.params.length + 1;
+    const statusIndex = idIndex + 1;
+    const userIndex = statusIndex + 1;
+    const params = [...scope.params, req.params.id, status, req.auth!.id];
+    const result = await db.query(`UPDATE maintenance_records mr SET status=$${statusIndex}, performed_at=CASE WHEN $${statusIndex}='completed' THEN COALESCE(mr.performed_at,CURRENT_DATE) ELSE mr.performed_at END, completed_by=CASE WHEN $${statusIndex}='completed' THEN $${userIndex} ELSE mr.completed_by END, updated_at=now() FROM vehicles v WHERE mr.vehicle_id=v.id AND mr.id=$${idIndex} AND ${scope.clause} RETURNING mr.id`, params);
     if (!result.rows[0]) return res.status(404).json({ error: 'Maintenance record not found' });
     await writeAudit(req, `maintenance.${status}`, 'maintenance_record', req.params.id, 'success');
     res.json({ data: result.rows[0] });
@@ -80,8 +82,8 @@ maintenanceRouter.patch('/:id/complete', requirePermission('fleet.write'), async
     const { actualCost, performedAt, odometerKm, notes } = req.body ?? {};
     const cost = actualCost == null ? null : Number(actualCost);
     if (cost != null && (!Number.isFinite(cost) || cost < 0)) return res.status(400).json({ error: 'actualCost must be zero or greater' });
+    const idIndex = scope.params.length + 1;
     const params = [...scope.params, req.params.id, cost, performedAt ?? null, odometerKm ?? null, notes ?? null, req.auth!.id];
-    const idIndex=scope.params.length+1;
     const result = await db.query(`UPDATE maintenance_records mr SET status='completed', actual_cost=COALESCE($${idIndex+1},mr.actual_cost), performed_at=COALESCE($${idIndex+2},mr.performed_at,CURRENT_DATE), odometer_km=COALESCE($${idIndex+3},mr.odometer_km), notes=COALESCE($${idIndex+4},mr.notes), completed_by=$${idIndex+5}, updated_at=now() FROM vehicles v WHERE mr.vehicle_id=v.id AND mr.id=$${idIndex} AND ${scope.clause} RETURNING mr.id`, params);
     if (!result.rows[0]) return res.status(404).json({ error: 'Maintenance record not found' });
     await writeAudit(req, 'maintenance.complete', 'maintenance_record', req.params.id, 'success');
