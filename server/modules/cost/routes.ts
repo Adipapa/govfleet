@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { db } from '../../db/client.js';
-import { requireAuth, requirePermission, vehicleScope } from '../../middleware/auth.js';
+import { requireAuth } from '../../middleware/auth.js';
+import { requirePermission } from '../../middleware/rbac.js';
+import { vehicleScope } from '../../middleware/scope.js';
 
 const router = Router();
 router.use(requireAuth, requirePermission('fleet.read'));
@@ -15,7 +17,7 @@ router.get('/summary', async (req, res, next) => {
   try {
     const scope = vehicleScope(req, 'v');
     const { from, to } = dateRange(req);
-    const params: unknown[] = [];
+    const params: unknown[] = [...scope.params];
     const add = (value: unknown) => { params.push(value); return '$' + params.length; };
     const date = (column: string) => {
       const clauses: string[] = [];
@@ -25,12 +27,12 @@ router.get('/summary', async (req, res, next) => {
     };
     const result = await db.query(`
       SELECT
-        (SELECT COALESCE(SUM(ft.total_cost),0) FROM fuel_transactions ft JOIN vehicles v2 ON v2.id=ft.vehicle_id WHERE v2.id IN (SELECT v.id FROM vehicles v WHERE ${scope.clause})${date('ft.occurred_at')}) AS fuel_cost,
-        (SELECT COALESCE(SUM(ft.quantity_litres),0) FROM fuel_transactions ft JOIN vehicles v2 ON v2.id=ft.vehicle_id WHERE v2.id IN (SELECT v.id FROM vehicles v WHERE ${scope.clause})${date('ft.occurred_at')}) AS fuel_litres,
-        (SELECT COALESCE(SUM(m.actual_cost),0) FROM maintenance_records m JOIN vehicles v2 ON v2.id=m.vehicle_id WHERE v2.id IN (SELECT v.id FROM vehicles v WHERE ${scope.clause}) AND m.status='completed'${date('m.performed_at')}) AS maintenance_cost,
-        (SELECT COALESCE(SUM(t.distance_km),0) FROM trips t JOIN vehicles v2 ON v2.id=t.vehicle_id WHERE v2.id IN (SELECT v.id FROM vehicles v WHERE ${scope.clause})${date('t.started_at')}) AS distance_km,
+        (SELECT COALESCE(SUM(ft.total_cost),0) FROM fuel_transactions ft WHERE EXISTS (SELECT 1 FROM vehicles v2 WHERE v2.id=ft.vehicle_id AND ${scope.clause.replaceAll('v.', 'v2.')})${date('ft.occurred_at')}) AS fuel_cost,
+        (SELECT COALESCE(SUM(ft.quantity_litres),0) FROM fuel_transactions ft WHERE EXISTS (SELECT 1 FROM vehicles v2 WHERE v2.id=ft.vehicle_id AND ${scope.clause.replaceAll('v.', 'v2.')})${date('ft.occurred_at')}) AS fuel_litres,
+        (SELECT COALESCE(SUM(m.actual_cost),0) FROM maintenance_records m WHERE EXISTS (SELECT 1 FROM vehicles v2 WHERE v2.id=m.vehicle_id AND ${scope.clause.replaceAll('v.', 'v2.')}) AND m.status='completed'${date('m.performed_at')}) AS maintenance_cost,
+        (SELECT COALESCE(SUM(t.distance_km),0) FROM trips t WHERE EXISTS (SELECT 1 FROM vehicles v2 WHERE v2.id=t.vehicle_id AND ${scope.clause.replaceAll('v.', 'v2.')})${date('t.started_at')}) AS distance_km,
         (SELECT COUNT(*) FROM vehicles v WHERE ${scope.clause}) AS vehicles,
-        (SELECT COUNT(*) FROM fuel_anomalies fa JOIN vehicles v2 ON v2.id=fa.vehicle_id WHERE v2.id IN (SELECT v.id FROM vehicles v WHERE ${scope.clause}) AND fa.resolved_at IS NULL) AS open_fuel_anomalies
+        (SELECT COUNT(*) FROM fuel_anomalies fa WHERE EXISTS (SELECT 1 FROM vehicles v2 WHERE v2.id=fa.vehicle_id AND ${scope.clause.replaceAll('v.', 'v2.')}) AND fa.resolved_at IS NULL) AS open_fuel_anomalies
     `, params);
     const row = result.rows[0];
     const fuelCost = Number(row.fuel_cost || 0);
@@ -52,7 +54,7 @@ router.get('/vehicles', async (req, res, next) => {
   try {
     const scope = vehicleScope(req, 'v');
     const { from, to } = dateRange(req);
-    const params: unknown[] = [];
+    const params: unknown[] = [...scope.params];
     const add = (value: unknown) => { params.push(value); return '$' + params.length; };
     const date = (column: string) => {
       const clauses: string[] = [];
