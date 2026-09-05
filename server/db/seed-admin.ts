@@ -2,15 +2,18 @@ import { db, closeDb } from './client.js';
 import { hashPassword } from '../modules/auth/auth.js';
 
 async function seedAdmin() {
-  const username = process.env.ADMIN_USERNAME;
-  const email = process.env.ADMIN_EMAIL;
-  const password = process.env.ADMIN_PASSWORD;
+  const username = process.env.ADMIN_USERNAME ?? 'admin';
+  const email = process.env.ADMIN_EMAIL ?? 'admin@localhost';
+  const password = process.env.ADMIN_PASSWORD ?? (process.env.NODE_ENV === 'development' ? '123456' : undefined);
   const fullName = process.env.ADMIN_FULL_NAME ?? 'QTS Platform Administrator';
 
-  if (!username || !email || !password) {
-    throw new Error('ADMIN_USERNAME, ADMIN_EMAIL and ADMIN_PASSWORD are required for admin seeding');
+  if (!password) {
+    throw new Error('ADMIN_PASSWORD is required outside development');
   }
-  if (password.length < 14) throw new Error('ADMIN_PASSWORD must be at least 14 characters');
+
+  if (process.env.NODE_ENV !== 'development' && password.length < 14) {
+    throw new Error('ADMIN_PASSWORD must be at least 14 characters outside development');
+  }
 
   const passwordHash = await hashPassword(password);
   const client = await db.connect();
