@@ -20,6 +20,7 @@ import budgetRouter from './modules/cost/budgetRoutes.js';
 import { intelligenceRouter } from './modules/intelligence/routes.js';
 import { reportsRouter } from './modules/reports/routes.js';
 import geofencesRouter from './modules/geofences/routes.js';
+import auditRouter from './modules/audit/routes.js';
 
 export const app = express();
 
@@ -61,5 +62,6 @@ app.use('/api/v1/cost', budgetRouter);
 app.use('/api/v1/intelligence', intelligenceRouter);
 app.use('/api/v1/reports', reportsRouter);
 app.use('/api/v1/geofences', geofencesRouter);
+app.use('/api/v1/audit', auditRouter);
 app.use((_req, res) => { res.status(404).json({ error: 'Not Found' }); });
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => { console.error(err); res.status(500).json({ error: 'Internal server error' }); });
