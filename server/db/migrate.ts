@@ -24,6 +24,23 @@ async function applyMigration(version: string, sql: string) {
 }
 
 async function migrate() {
+  const maxAttempts = 30;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await db.query('SELECT 1');
+      console.log(`Database connection established (attempt ${attempt})`);
+      break;
+    } catch (error) {
+      if (attempt === maxAttempts) {
+        throw error;
+      }
+
+      console.log(`Database not ready yet (attempt ${attempt}/${maxAttempts}); retrying in 2 seconds...`);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
+  }
+
   await db.query(`CREATE TABLE IF NOT EXISTS schema_migrations (
     version TEXT PRIMARY KEY,
     applied_at TIMESTAMPTZ NOT NULL DEFAULT now()

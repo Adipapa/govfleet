@@ -1,0 +1,113 @@
+services:
+
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: govfleet-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: qts_govfleet
+      POSTGRES_USER: qts
+      POSTGRES_PASSWORD: qts_dev
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qts -d qts_govfleet"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+
+  redis:
+    image: redis:7-alpine
+    container_name: govfleet-redis
+    restart: unless-stopped
+
+    volumes:
+      - redis_data:/data
+
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+
+    container_name: govfleet-migrate
+
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://qts:qts_dev@postgres:5432/qts_govfleet
+      DB_POOL_MAX: 20
+      JWT_SECRET: migration-only-secret
+
+    command: ["node", "dist-server/db/migrate.js"]
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+
+    container_name: govfleet-api
+    restart: unless-stopped
+
+    environment:
+      NODE_ENV: production
+      API_PORT: 4000
+
+      DATABASE_URL: postgresql://qts:qts_dev@postgres:5432/qts_govfleet
+      DB_POOL_MAX: 20
+
+      REDIS_URL: redis://redis:6379
+
+      JWT_SECRET: change-this-govfleet-secret
+
+      CORS_ORIGIN: http://localhost:3000
+      APP_URL: http://localhost:3000
+
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+
+    ports:
+      - "4000:4000"
+
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_started
+
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: frontend
+
+    container_name: govfleet-frontend
+    restart: unless-stopped
+
+    ports:
+      - "3000:80"
+
+    depends_on:
+      api:
+        condition: service_healthy
+
+
+volumes:
+  postgres_data:
+  redis_data:
