@@ -1,0 +1,25 @@
+name: Deploy GovFleet
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Update repository
+        uses: actions/checkout@v4
+
+      - name: Build and deploy Docker containers
+        shell: powershell
+        run: |
+          docker compose up -d --build
+
+      - name: Verify deployment
+        shell: powershell
+        run: |
+          docker compose ps
+          docker compose ps --status running
