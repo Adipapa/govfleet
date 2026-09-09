@@ -1,25 +1,165 @@
 name: Deploy GovFleet
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
     branches:
       - main
 
+  workflow_dispatch:
+
+concurrency:
+  group: govfleet-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
 jobs:
   deploy:
+    name: Deploy to GovFleet Server
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main'
+      )
+
     runs-on: self-hosted
 
     steps:
-      - name: Update repository
+      - name: Checkout deployment commit
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          clean: true
+          fetch-depth: 1
 
-      - name: Build and deploy Docker containers
+      - name: Verify Docker
         shell: powershell
         run: |
-          docker compose up -d --build
+          docker --version
+          docker compose version
 
-      - name: Verify deployment
+      - name: Validate Docker Compose configuration
+        shell: powershell
+        run: |
+          docker compose config -q
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Docker Compose configuration is invalid."
+            exit 1
+          }
+
+          Write-Host "Docker Compose configuration is valid."
+
+      - name: Build Docker images
+        shell: powershell
+        run: |
+          docker compose build --pull
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Docker image build failed."
+            exit 1
+          }
+
+      - name: Start infrastructure
+        shell: powershell
+        run: |
+          docker compose up -d postgres redis
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to start PostgreSQL/Redis."
+            exit 1
+          }
+
+      - name: Run database migrations
+        shell: powershell
+        run: |
+          docker compose run --rm migrate
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Database migration failed. Deployment stopped."
+            exit 1
+          }
+
+      - name: Deploy application
+        shell: powershell
+        run: |
+          docker compose up -d api frontend --remove-orphans
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Application deployment failed."
+            exit 1
+          }
+
+      - name: Wait for API health
+        shell: powershell
+        run: |
+          $maxAttempts = 30
+          $attempt = 0
+
+          while ($attempt -lt $maxAttempts) {
+            $attempt++
+
+            try {
+              $response = Invoke-WebRequest `
+                -Uri "http://localhost:4000/health" `
+                -UseBasicParsing `
+                -TimeoutSec 5
+
+              if ($response.StatusCode -eq 200) {
+                Write-Host "API health check passed."
+                exit 0
+              }
+            }
+            catch {
+              Write-Host "API not ready yet. Attempt $attempt/$maxAttempts"
+            }
+
+            Start-Sleep -Seconds 5
+          }
+
+          Write-Error "API health check failed after $maxAttempts attempts."
+          docker compose ps
+          docker compose logs --tail=100 api
+          exit 1
+
+      - name: Verify containers
         shell: powershell
         run: |
           docker compose ps
-          docker compose ps --status running
+
+          $services = @(
+            "govfleet-postgres",
+            "govfleet-redis",
+            "govfleet-api",
+            "govfleet-frontend"
+          )
+
+          foreach ($service in $services) {
+            $status = docker inspect `
+              --format '{{.State.Status}}' `
+              $service 2>$null
+
+            if ($LASTEXITCODE -ne 0 -or $status -ne "running") {
+              Write-Error "$service is not running. Status: $status"
+              docker compose ps
+              exit 1
+            }
+
+            Write-Host "$service is running."
+          }
+
+      - name: Deployment summary
+        shell: powershell
+        run: |
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "       GOVFLEET DEPLOYMENT SUCCESS"
+          Write-Host "=========================================="
+          Write-Host ""
+
+          docker compose ps
