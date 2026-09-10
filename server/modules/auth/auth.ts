@@ -67,7 +67,11 @@ export async function authenticate(usernameOrEmail: string, password: string, ip
 
   const authUser = await loadUser(user.id);
   if (!authUser) return null;
-  return { token, user: authUser };
+  return {
+  token,
+  expiresAt: expiresAt.toISOString(),
+  user: authUser,
+};
 }
 
 export async function verifyToken(token: string): Promise<AuthUser | null> {
