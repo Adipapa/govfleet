@@ -8,6 +8,11 @@ export type ApiUser = {
   agencyId: string | null; departmentId: string | null; driverId: string | null;
   roles: string[]; permissions: string[];
 };
+export type AdminAgency = { id: string; name: string; code: string; active: boolean; user_count: number; vehicle_count: number };
+export type AdminDepartment = { id: string; agency_id: string; agency_name: string; name: string; code: string; active: boolean };
+export type AdminRole = { id: string; name: string; description: string | null; permissions: Array<{ id: string; name: string; description: string | null }> };
+export type AdminPermission = { id: string; name: string; description: string | null };
+export type AdminUser = { id: string; username: string; email: string; full_name: string; status: string; agency_id: string | null; agency_name: string | null; department_id: string | null; department_name: string | null; driver_id: string | null; roles: Array<{ id: string; name: string }> };
 
 export type VehicleApiRow = {
   id: string; registration_number: string; asset_number: string | null; vin: string | null; engine_number: string | null;
@@ -22,12 +27,7 @@ export type VehicleApiRow = {
   created_at: string; updated_at: string;
 };
 export type VehicleListResponse = { data: VehicleApiRow[]; pagination: { page: number; limit: number; total: number; pages: number } };
-export type VehicleDetail = VehicleApiRow & {
-  current_driver: Record<string, unknown> | null; current_device: Record<string, unknown> | null;
-  latest_telemetry: Record<string, unknown> | null; trip_count: number; open_maintenance_count: number;
-  open_alert_count: number; month_distance_km: number; recent_maintenance: Array<Record<string, unknown>> | null;
-  assignment_history: Array<Record<string, unknown>>;
-};
+export type VehicleDetail = VehicleApiRow & { current_driver: Record<string, unknown> | null; current_device: Record<string, unknown> | null; latest_telemetry: Record<string, unknown> | null; trip_count: number; open_maintenance_count: number; open_alert_count: number; month_distance_km: number; recent_maintenance: Array<Record<string, unknown>> | null; assignment_history: Array<Record<string, unknown>> };
 export type AlertListResponse = { data: AlertEvent[]; pagination: { page: number; limit: number; total: number; pages: number } };
 export type DeviceApiRow = { id: string; device_identifier: string; serial_number: string | null; manufacturer: string | null; model: string | null; protocol: string | null; firmware_version: string | null; status: string; last_heartbeat_at: string | null; vehicle_id: string | null; registration_number: string | null; agency_id: string | null; department_id: string | null };
 export type DeviceCreateInput = { deviceIdentifier: string; serialNumber?: string; manufacturer?: string; model?: string; protocol?: string; firmwareVersion?: string };
@@ -36,17 +36,7 @@ export type DeviceCredentialResponse = { token: string; warning: string };
 export function getAccessToken(): string | null { return sessionStorage.getItem(TOKEN_KEY); }
 export function setAccessToken(token: string): void { sessionStorage.setItem(TOKEN_KEY, token); }
 export function clearAccessToken(): void { sessionStorage.removeItem(TOKEN_KEY); }
-
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers); headers.set('Accept', 'application/json');
-  if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-  const token = getAccessToken(); if (token) headers.set('Authorization', `Bearer ${token}`);
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
-  if (response.status === 401) clearAccessToken();
-  if (!response.ok) throw new Error((await response.text()) || `API request failed (${response.status})`);
-  if (response.status === 204) return undefined as T; return response.json() as Promise<T>;
-}
-
+async function request<T>(path: string, init: RequestInit = {}): Promise<T> { const headers = new Headers(init.headers); headers.set('Accept', 'application/json'); if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json'); const token = getAccessToken(); if (token) headers.set('Authorization', `Bearer ${token}`); const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers }); if (response.status === 401) clearAccessToken(); if (!response.ok) throw new Error((await response.text()) || `API request failed (${response.status})`); if (response.status === 204) return undefined as T; return response.json() as Promise<T>; }
 export async function login(username: string, password: string) { const result = await request<{ token: string; expiresAt: string; user: ApiUser }>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }); setAccessToken(result.token); return result; }
 export async function getCurrentUser(): Promise<ApiUser> { return (await request<{ user: ApiUser }>('/auth/me')).user; }
 export async function logout(): Promise<void> { try { await request<void>('/auth/logout', { method: 'POST' }); } finally { clearAccessToken(); } }
@@ -63,27 +53,24 @@ export async function getLatestTelemetry() { return (await request<{ data: Array
 export async function getAlerts(params: { page?: number; limit?: number; severity?: string; acknowledged?: boolean; vehicleId?: string } = {}) { const query = new URLSearchParams(); if (params.page) query.set('page', String(params.page)); if (params.limit) query.set('limit', String(params.limit)); if (params.severity) query.set('severity', params.severity); if (params.acknowledged !== undefined) query.set('acknowledged', String(params.acknowledged)); if (params.vehicleId) query.set('vehicleId', params.vehicleId); return request<AlertListResponse>(`/alerts?${query.toString()}`); }
 export async function getAlertSummary() { return request<{ total: number; unacknowledged: number; critical: number; high: number; medium: number; low: number }>('/alerts/summary'); }
 export async function acknowledgeAlert(id: string) { return request(`/alerts/${encodeURIComponent(id)}/acknowledge`, { method: 'POST' }); }
+export async function getAdminAgencies() { return (await request<{ data: AdminAgency[] }>('/admin/agencies')).data; }
+export async function createAdminAgency(input: { name: string; code: string }) { return (await request<{ data: AdminAgency }>('/admin/agencies', { method: 'POST', body: JSON.stringify(input) })).data; }
+export async function updateAdminAgency(id: string, input: Partial<{ name: string; code: string; active: boolean }>) { return (await request<{ data: AdminAgency }>(`/admin/agencies/${id}`, { method: 'PATCH', body: JSON.stringify(input) })).data; }
+export async function getAdminDepartments(agencyId?: string) { return (await request<{ data: AdminDepartment[] }>(`/admin/departments${agencyId ? `?agencyId=${encodeURIComponent(agencyId)}` : ''}`)).data; }
+export async function createAdminDepartment(input: { agencyId: string; name: string; code: string }) { return (await request<{ data: AdminDepartment }>('/admin/departments', { method: 'POST', body: JSON.stringify(input) })).data; }
+export async function updateAdminDepartment(id: string, input: Partial<{ name: string; code: string; active: boolean }>) { return (await request<{ data: AdminDepartment }>(`/admin/departments/${id}`, { method: 'PATCH', body: JSON.stringify(input) })).data; }
+export async function getAdminUsers() { return (await request<{ data: AdminUser[] }>('/admin/users')).data; }
+export async function createAdminUser(input: Record<string, unknown>) { return (await request<{ data: AdminUser }>('/admin/users', { method: 'POST', body: JSON.stringify(input) })).data; }
+export async function updateAdminUser(id: string, input: Record<string, unknown>) { return (await request<{ data: AdminUser }>(`/admin/users/${id}`, { method: 'PATCH', body: JSON.stringify(input) })).data; }
+export async function updateAdminUserRoles(id: string, roleIds: string[]) { return request(`/admin/users/${id}/roles`, { method: 'PUT', body: JSON.stringify({ roleIds }) }); }
+export async function getAdminRoles() { return (await request<{ data: AdminRole[] }>('/admin/roles')).data; }
+export async function createAdminRole(input: { name: string; description?: string; permissionIds?: string[] }) { return (await request<{ data: AdminRole }>('/admin/roles', { method: 'POST', body: JSON.stringify(input) })).data; }
+export async function updateAdminRolePermissions(id: string, permissionIds: string[]) { return request(`/admin/roles/${id}/permissions`, { method: 'PUT', body: JSON.stringify({ permissionIds })); }
+export async function getAdminPermissions() { return (await request<{ data: AdminPermission[] }>('/admin/permissions')).data; }
 
 export function mapVehicle(row: VehicleApiRow, telemetry?: Record<string, unknown>): Vehicle {
-  const fuelType = row.fuel_type === 'Petrol' ? 'Petrol' : 'Diesel';
-  const status = ['moving','stopped','idling','parked','offline','no_gps','emergency','unauthorized'].includes(row.status) ? row.status as Vehicle['status'] : 'offline';
-  const department = row.department_name || row.agency_name;
-  const currentTelemetry = telemetry;
-  const lat = Number(currentTelemetry?.latitude ?? 0); const lng = Number(currentTelemetry?.longitude ?? 0);
-  const tank = Number(row.tank_capacity_litres ?? 0); const fuel = Number(currentTelemetry?.fuel_litres ?? 0);
-  return {
-    id: row.id, regNumber: row.registration_number, assetNumber: row.asset_number || '', make: row.make || '', model: row.model || '', year: row.model_year || 0,
-    type: (row.vehicle_type || 'Other') as Vehicle['type'], department: department as Vehicle['department'],
-    assignedDriver: { id: '', name: 'Unassigned', phone: '', licenseNumber: '', safetyScore: 0 }, deviceId: '', simNumber: '', fuelType,
-    tankCapacityLiters: tank, currentFuelLiters: fuel, currentFuelPercentage: tank > 0 && currentTelemetry?.fuel_litres != null ? Math.round((fuel / tank) * 100) : 0,
-    mileageKm: Number(currentTelemetry?.odometer_km ?? row.odometer_km ?? 0), status,
-    currentLocation: { lat, lng, address: '' }, speedKmh: Number(currentTelemetry?.speed_kmh ?? 0), heading: Number(currentTelemetry?.heading ?? 0),
-    ignition: Boolean(currentTelemetry?.ignition ?? false), gpsStatus: currentTelemetry ? 'Connected' : 'Offline', satellites: Number(currentTelemetry?.satellites ?? 0),
-    gsmSignal: Number(currentTelemetry?.gsm_signal ?? 0), lastCommunication: String(currentTelemetry?.recorded_at ?? ''), batteryVoltage: Number(currentTelemetry?.battery_voltage ?? 0),
-    insuranceExpiry: row.insurance_expiry || '', registrationExpiry: row.registration_expiry || '', nextServiceKm: Number(row.next_service_odometer_km ?? 0),
-    lastServiceDate: row.last_service_date || '', dailyKm: 0, workingHoursToday: 0, idleHoursToday: 0, afterHoursUsageDetected: false,
-  };
+  const fuelType = row.fuel_type === 'Petrol' ? 'Petrol' : 'Diesel'; const status = ['moving','stopped','idling','parked','offline','no_gps','emergency','unauthorized'].includes(row.status) ? row.status as Vehicle['status'] : 'offline'; const department = row.department_name || row.agency_name; const currentTelemetry = telemetry; const lat = Number(currentTelemetry?.latitude ?? 0); const lng = Number(currentTelemetry?.longitude ?? 0); const tank = Number(row.tank_capacity_litres ?? 0); const fuel = Number(currentTelemetry?.fuel_litres ?? 0);
+  return { id: row.id, regNumber: row.registration_number, assetNumber: row.asset_number || '', make: row.make || '', model: row.model || '', year: row.model_year || 0, type: (row.vehicle_type || 'Other') as Vehicle['type'], department: department as Vehicle['department'], assignedDriver: { id: '', name: 'Unassigned', phone: '', licenseNumber: '', safetyScore: 0 }, deviceId: '', simNumber: '', fuelType, tankCapacityLiters: tank, currentFuelLiters: fuel, currentFuelPercentage: tank > 0 && currentTelemetry?.fuel_litres != null ? Math.round((fuel / tank) * 100) : 0, mileageKm: Number(currentTelemetry?.odometer_km ?? row.odometer_km ?? 0), status, currentLocation: { lat, lng, address: '' }, speedKmh: Number(currentTelemetry?.speed_kmh ?? 0), heading: Number(currentTelemetry?.heading ?? 0), ignition: Boolean(currentTelemetry?.ignition ?? false), gpsStatus: currentTelemetry ? 'Connected' : 'Offline', satellites: Number(currentTelemetry?.satellites ?? 0), gsmSignal: Number(currentTelemetry?.gsm_signal ?? 0), lastCommunication: String(currentTelemetry?.recorded_at ?? ''), batteryVoltage: Number(currentTelemetry?.battery_voltage ?? 0), insuranceExpiry: row.insurance_expiry || '', registrationExpiry: row.registration_expiry || '', nextServiceKm: Number(row.next_service_odometer_km ?? 0), lastServiceDate: row.last_service_date || '', dailyKm: 0, workingHoursToday: 0, idleHoursToday: 0, afterHoursUsageDetected: false };
 }
-
 export type FleetEvent = { type: 'connected' | 'telemetry.updated' | 'alert.created' | 'vehicle.updated'; occurredAt: string; payload: Record<string, unknown> };
 export function subscribeToFleetEvents(onEvent: (event: FleetEvent) => void, onError?: (error: Error) => void) { const controller = new AbortController(); const token = getAccessToken(); if (!token) { onError?.(new Error('Authentication required for realtime events')); return () => controller.abort(); } void (async () => { try { const response = await fetch(`${API_BASE_URL}/realtime/events`, { headers: { Accept: 'text/event-stream', Authorization: `Bearer ${token}` }, signal: controller.signal }); if (!response.ok || !response.body) throw new Error(`Realtime connection failed (${response.status})`); const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; while (!controller.signal.aborted) { const { done, value } = await reader.read(); if (done) break; buffer += decoder.decode(value, { stream: true }); const frames = buffer.split('\n\n'); buffer = frames.pop() ?? ''; for (const frame of frames) { const data = frame.split('\n').filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim()).join('\n'); if (!data) continue; try { onEvent(JSON.parse(data) as FleetEvent); } catch { /* ignore malformed frame */ } } } } catch (error) { if (!controller.signal.aborted) onError?.(error instanceof Error ? error : new Error(String(error))); } })(); return () => controller.abort(); }
