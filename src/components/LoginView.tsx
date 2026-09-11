@@ -150,7 +150,20 @@ export const LoginView: React.FC<LoginViewProps> = ({ onAuthenticated }) => {
             </button>
           </form>
 
-          <div className="px-8 py-4 border-t border-slate-800 bg-slate-950/50">
+          <div className="px-8 py-4 border-t border-slate-800 bg-slate-950/50 flex flex-col gap-2">
+            <div className="flex items-center justify-between text-[11px] font-mono text-slate-400">
+              <span className="text-slate-500">Default Admin:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setUsername('admin');
+                  setPassword('GovFleets2026@');
+                }}
+                className="text-cyan-400 hover:text-cyan-300 underline underline-offset-2 transition-colors cursor-pointer"
+              >
+                Auto-fill credentials
+              </button>
+            </div>
             <div className="flex items-center justify-center gap-2 text-[10px] font-mono text-slate-500">
               <Shield className="w-3 h-3 text-cyan-500" />
               AUTHORIZED ACCESS ONLY

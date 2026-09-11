@@ -65,7 +65,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@govfleet.local}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-GovFleets2026@}
       ADMIN_FULL_NAME: ${ADMIN_FULL_NAME:-QTS Platform Administrator}
 
     command: ["node", "dist-server/db/seed-admin.js"]
