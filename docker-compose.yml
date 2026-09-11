@@ -50,6 +50,31 @@ services:
         condition: service_healthy
 
 
+  admin-seed:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+
+    container_name: govfleet-admin-seed
+
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      DB_POOL_MAX: 5
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@govfleet.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD is required}
+      ADMIN_FULL_NAME: ${ADMIN_FULL_NAME:-QTS Platform Administrator}
+
+    command: ["node", "dist-server/db/seed-admin.js"]
+
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+
   api:
     build:
       context: .
@@ -80,6 +105,8 @@ services:
 
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      admin-seed:
         condition: service_completed_successfully
       redis:
         condition: service_started
