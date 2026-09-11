@@ -26,6 +26,36 @@ export type AlertListResponse = {
   pagination: { page: number; limit: number; total: number; pages: number };
 };
 
+export type DeviceApiRow = {
+  id: string;
+  device_identifier: string;
+  serial_number: string | null;
+  manufacturer: string | null;
+  model: string | null;
+  protocol: string | null;
+  firmware_version: string | null;
+  status: string;
+  last_heartbeat_at: string | null;
+  vehicle_id: string | null;
+  registration_number: string | null;
+  agency_id: string | null;
+  department_id: string | null;
+};
+
+export type DeviceCreateInput = {
+  deviceIdentifier: string;
+  serialNumber?: string;
+  manufacturer?: string;
+  model?: string;
+  protocol?: string;
+  firmwareVersion?: string;
+};
+
+export type DeviceCredentialResponse = {
+  token: string;
+  warning: string;
+};
+
 export function getAccessToken(): string | null { return sessionStorage.getItem(TOKEN_KEY); }
 export function setAccessToken(token: string): void { sessionStorage.setItem(TOKEN_KEY, token); }
 export function clearAccessToken(): void { sessionStorage.removeItem(TOKEN_KEY); }
@@ -64,6 +94,30 @@ export async function getVehicles(params: { page?: number; limit?: number; searc
   if (params.search) query.set('search', params.search);
   if (params.status) query.set('status', params.status);
   return request<VehicleListResponse>(`/vehicles?${query.toString()}`);
+}
+
+export async function getDevices() {
+  return request<{ data: DeviceApiRow[] }>('/devices');
+}
+
+export async function registerDevice(input: DeviceCreateInput) {
+  return request<{ data: DeviceApiRow }>('/devices', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function assignDevice(deviceId: string, vehicleId: string) {
+  return request<{ data: Record<string, unknown> }>(`/devices/${encodeURIComponent(deviceId)}/assign`, {
+    method: 'POST',
+    body: JSON.stringify({ vehicleId }),
+  });
+}
+
+export async function generateDeviceCredential(deviceId: string) {
+  return request<DeviceCredentialResponse>(`/devices/${encodeURIComponent(deviceId)}/credentials`, {
+    method: 'POST',
+  });
 }
 
 export async function getLatestTelemetry() {
