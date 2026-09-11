@@ -11,6 +11,7 @@ import telemetryIngestRouter from './modules/telemetry/ingest.js';
 import telemetryRouter from './modules/telemetry/routes.js';
 import alertsRouter from './modules/alerts/routes.js';
 import { realtimeRouter } from './modules/realtime/routes.js';
+import adminRouter from './modules/admin/routes.js';
 
 export const app = express();
 
@@ -34,6 +35,7 @@ app.get('/api/v1', (_req, res) => {
 });
 
 app.use('/api/v1/auth', authRouter);
+app.use('/api/v1/admin', adminRouter);
 app.use('/api/v1/vehicles', fleetRouter);
 app.use('/api/v1/drivers', driversRouter);
 app.use('/api/v1/devices', devicesRouter);
