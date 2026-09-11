@@ -20,97 +20,19 @@ import { GpsDevicesView } from './components/GpsDevicesView';
 import { DeviceRegistrationView } from './components/DeviceRegistrationView';
 import { DriverMobileModal } from './components/DriverMobileModal';
 import { LoginView } from './components/LoginView';
+import { PlatformAdministrationView } from './components/PlatformAdministrationView';
 
 export function App() {
-  const [user, setUser] = useState<ApiUser | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [alerts, setAlerts] = useState<AlertEvent[]>([]);
-  const [fuelLogs] = useState<FuelLogEvent[]>([]);
-  const [auditLogs] = useState<AuditLog[]>([]);
-  const [geofences] = useState<Geofence[]>([]);
-  const [trips] = useState<Trip[]>([]);
-  const [maintenance] = useState<MaintenanceItem[]>([]);
-  const [activeTab, setActiveTab] = useState<string>('overview');
-  const [selectedAgency, setSelectedAgency] = useState<GovernmentAgency>('All Agencies');
-  const [isMobileModalOpen, setIsMobileModalOpen] = useState(false);
-  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
-  const [isDossierOpen, setIsDossierOpen] = useState(false);
-  const [activePlaybackTrip, setActivePlaybackTrip] = useState<Trip | null>(null);
-  const [dataLoading, setDataLoading] = useState(false);
-
-  useEffect(() => {
-    const token = getAccessToken();
-    if (!token) { setAuthLoading(false); return; }
-    void getCurrentUser().then((currentUser) => setUser(currentUser)).catch(() => setUser(null)).finally(() => setAuthLoading(false));
-  }, []);
-
-  useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-    const refresh = async () => {
-      setDataLoading(true);
-      try {
-        const [vehicleResponse, telemetryRows, alertResponse] = await Promise.all([getVehicles({ page: 1, limit: 100 }), getLatestTelemetry(), getAlerts({ page: 1, limit: 100 })]);
-        if (cancelled) return;
-        const telemetryByVehicle = new Map(telemetryRows.map((row: any) => [row.vehicle_id, row]));
-        setVehicles(vehicleResponse.data.map((row: any) => mapVehicle(row, telemetryByVehicle.get(row.id))));
-        setAlerts(alertResponse.data as AlertEvent[]);
-      } catch (error) {
-        if (!cancelled) console.error('Failed to load live fleet data:', error);
-      } finally {
-        if (!cancelled) setDataLoading(false);
-      }
-    };
-    void refresh();
-    const unsubscribe = subscribeToFleetEvents((event: any) => {
-      if (event?.type === 'telemetry.updated' || event?.type === 'vehicle.updated' || event?.type === 'alert.created') void refresh();
-    });
-    return () => { cancelled = true; unsubscribe?.(); };
-  }, [user]);
-
-  const canSelectAnyAgency = user?.roles.includes('super_admin') ?? false;
-  const effectiveAgency = canSelectAnyAgency || !user?.agencyId ? selectedAgency : 'All Agencies';
-  const filteredVehicles = vehicles.filter((vehicle) => effectiveAgency === 'All Agencies' || vehicle.department === effectiveAgency);
-  const selectedVehicle = vehicles.find((vehicle) => vehicle.id === selectedVehicleId) || null;
-
-  const handleAuthenticated = async () => {
-    try { const currentUser = await getCurrentUser(); setUser(currentUser); setActiveTab('overview'); } catch { setUser(null); }
-  };
-  const handleLogout = async () => { await logout(); setUser(null); setSelectedVehicleId(null); setIsDossierOpen(false); setActivePlaybackTrip(null); setActiveTab('overview'); };
-  const handleSelectVehicle = (id: string) => { setSelectedVehicleId(id); setIsDossierOpen(true); };
-  const handleNavigateToTracking = (vehicleId?: string) => { if (vehicleId) setSelectedVehicleId(vehicleId); setActiveTab('tracking'); };
-  const handleAcknowledgeAlert = async (alertId: string) => { console.warn('Alert acknowledgement requires the live alert API; no local simulation is performed.', alertId); };
-  const handleDispatchPolice = (alertId: string) => console.warn('Police dispatch requires a live backend workflow.', alertId);
-  const handleAddGeofence = (_geo: Geofence) => console.warn('Geofence creation is not connected to the live API yet.');
-  const handleDeleteGeofence = (_id: string) => console.warn('Geofence deletion is not connected to the live API yet.');
-  const handleAddMaintenance = (_item: MaintenanceItem) => console.warn('Maintenance creation is not connected to the live API yet.');
-  const handleReplayVehicleTrip = (vehicle: Vehicle) => { const existingTrip = trips.find((trip) => trip.vehicleReg === vehicle.regNumber); if (existingTrip) { setIsDossierOpen(false); setActivePlaybackTrip(existingTrip); } };
-
-  if (authLoading) return <div className="min-h-screen w-full bg-slate-950 flex items-center justify-center text-slate-400"><div className="flex items-center gap-3 text-sm"><div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />Verifying secure session...</div></div>;
-  if (!user) return <LoginView onAuthenticated={handleAuthenticated} />;
-
-  return <div className="flex flex-row h-screen w-screen bg-slate-950 text-slate-100 overflow-hidden font-sans select-none">
-    <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} selectedAgency={effectiveAgency} setSelectedAgency={canSelectAnyAgency ? setSelectedAgency : () => undefined} currentRole={(user.roles[0] || 'fleet_admin') as UserRole} setCurrentRole={() => undefined} activeAlerts={alerts} alertCount={alerts.length} onOpenAlerts={() => setActiveTab('alerts')} onOpenMobileApp={() => setIsMobileModalOpen(true)} />
-    <main className="flex-1 flex flex-col overflow-hidden relative min-w-0 bg-slate-950">
-      {(activeTab === 'overview' || activeTab === 'dashboard') && <DashboardOverview vehicles={filteredVehicles} alerts={alerts} fuelLogs={fuelLogs} selectedAgency={effectiveAgency} onNavigateToTracking={handleNavigateToTracking} onOpenAlerts={() => setActiveTab('alerts')} onOpenFuelIntelligence={() => setActiveTab('fuel')} onOpenDriverSafety={() => setActiveTab('safety')} />}
-      {activeTab === 'tracking' && <div className="flex-1 flex flex-col md:flex-row h-full w-full overflow-hidden relative"><div className="w-full md:w-80 lg:w-96 h-64 md:h-full z-10 shrink-0 border-r border-slate-800 bg-slate-950 shadow-2xl"><FleetListPanel vehicles={filteredVehicles} selectedVehicleId={selectedVehicleId} onSelectVehicle={(id) => setSelectedVehicleId(id)} onOpenDossier={(vehicle) => { setSelectedVehicleId(vehicle.id); setIsDossierOpen(true); }} onInspectVehicle={handleSelectVehicle} /></div><div className="flex-1 h-full relative"><MapView vehicles={filteredVehicles} geofences={geofences} selectedVehicleId={selectedVehicleId} onSelectVehicle={(id) => setSelectedVehicleId(id)} onOpenVehicleDossier={(vehicle) => { setSelectedVehicleId(vehicle.id); setIsDossierOpen(true); }} onReplayTrip={handleReplayVehicleTrip} /></div></div>}
-      {(activeTab === 'fleet' || activeTab === 'intelligence') && <FleetRegistryView vehicles={filteredVehicles} onSelectVehicle={handleSelectVehicle} onOpenDossier={(vehicle) => { setSelectedVehicleId(vehicle.id); setIsDossierOpen(true); }} onNavigateToMap={handleNavigateToTracking} />}
-      {activeTab === 'fuel' && <FuelMonitoringView vehicles={filteredVehicles} fuelLogs={fuelLogs} onSelectVehicle={handleSelectVehicle} />}
-      {activeTab === 'geofences' && <GeofencingView geofences={geofences} onAddGeofence={handleAddGeofence} onDeleteGeofence={handleDeleteGeofence} onViewOnMap={() => setActiveTab('tracking')} />}
-      {(activeTab === 'safety' || activeTab === 'driver') && <DriverSafetyView vehicles={filteredVehicles} onSelectVehicle={handleSelectVehicle} />}
-      {activeTab === 'maintenance' && <MaintenanceView maintenanceList={maintenance} vehicles={filteredVehicles} onAddMaintenance={handleAddMaintenance} onSelectVehicle={handleSelectVehicle} />}
-      {activeTab === 'devices' && <div className="flex-1 overflow-y-auto"><DeviceRegistrationView /><GpsDevicesView vehicles={filteredVehicles} /></div>}
-      {activeTab === 'alerts' && <AlertsView alerts={alerts} onAcknowledgeAlert={handleAcknowledgeAlert} onDispatchPolice={handleDispatchPolice} onLocateOnMap={handleNavigateToTracking} />}
-      {activeTab === 'reports' && <ReportsView trips={trips} vehicles={filteredVehicles} onPlayTrip={(trip) => setActivePlaybackTrip(trip)} />}
-      {(activeTab === 'audit' || activeTab === 'api') && <AuditSecurityView auditLogs={auditLogs} />}
-    </main>
-    <div className="fixed top-4 right-4 z-[9999] flex items-center gap-2"><div className="flex items-center gap-2 px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl"><UserCircle className="w-5 h-5 text-cyan-400" /><div className="leading-tight"><div className="text-xs font-semibold text-white">{user.fullName}</div><div className="text-[9px] text-slate-400 font-mono">{user.roles.join(' · ')}</div></div></div><button type="button" onClick={handleLogout} title="Sign out" aria-label="Sign out" className="flex items-center gap-2 px-3 py-2 bg-red-950/80 border border-red-800 rounded-lg text-red-300 hover:bg-red-900 hover:text-white transition-colors shadow-2xl"><LogOut className="w-4 h-4" /><span className="text-xs font-semibold">Logout</span></button></div>
-    {isDossierOpen && selectedVehicle && <VehicleDetailModal vehicle={selectedVehicle} onClose={() => setIsDossierOpen(false)} onTriggerSOS={() => undefined} onTriggerFuelTheft={() => undefined} onTriggerRefuel={() => undefined} onPlayTrip={handleReplayVehicleTrip} />}
-    {activePlaybackTrip && <TripPlaybackModal trip={activePlaybackTrip} vehicle={vehicles.find((vehicle) => vehicle.regNumber === activePlaybackTrip.vehicleReg)} onClose={() => setActivePlaybackTrip(null)} />}
-    {isMobileModalOpen && <DriverMobileModal vehicle={selectedVehicle || filteredVehicles[0] || vehicles[0]} onClose={() => setIsMobileModalOpen(false)} onTriggerSOS={() => undefined} />}
-    {dataLoading && <div className="fixed bottom-4 right-4 z-[9999] rounded-lg border border-slate-700 bg-slate-900/95 px-3 py-2 text-xs text-slate-400 shadow-xl">Loading live fleet data…</div>}
-  </div>;
+  const [user, setUser] = useState<ApiUser | null>(null); const [authLoading, setAuthLoading] = useState(true); const [vehicles, setVehicles] = useState<Vehicle[]>([]); const [alerts, setAlerts] = useState<AlertEvent[]>([]); const [fuelLogs] = useState<FuelLogEvent[]>([]); const [auditLogs] = useState<AuditLog[]>([]); const [geofences] = useState<Geofence[]>([]); const [trips] = useState<Trip[]>([]); const [maintenance] = useState<MaintenanceItem[]>([]); const [activeTab, setActiveTab] = useState<string>('overview'); const [selectedAgency, setSelectedAgency] = useState<GovernmentAgency>('All Agencies'); const [isMobileModalOpen, setIsMobileModalOpen] = useState(false); const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null); const [isDossierOpen, setIsDossierOpen] = useState(false); const [activePlaybackTrip, setActivePlaybackTrip] = useState<Trip | null>(null); const [dataLoading, setDataLoading] = useState(false);
+  useEffect(() => { const token = getAccessToken(); if (!token) { setAuthLoading(false); return; } void getCurrentUser().then(setUser).catch(() => setUser(null)).finally(() => setAuthLoading(false)); }, []);
+  useEffect(() => { if (!user) return; let cancelled=false; const refresh=async()=>{setDataLoading(true);try{const [vehicleResponse,telemetryRows,alertResponse]=await Promise.all([getVehicles({page:1,limit:100}),getLatestTelemetry(),getAlerts({page:1,limit:100})]);if(cancelled)return;const telemetryByVehicle=new Map(telemetryRows.map((row:any)=>[row.vehicle_id,row]));setVehicles(vehicleResponse.data.map((row:any)=>mapVehicle(row,telemetryByVehicle.get(row.id))));setAlerts(alertResponse.data as AlertEvent[]);}catch(error){if(!cancelled)console.error('Failed to load live fleet data:',error);}finally{if(!cancelled)setDataLoading(false);}};void refresh();const unsubscribe=subscribeToFleetEvents((event:any)=>{if(event?.type==='telemetry.updated'||event?.type==='vehicle.updated'||event?.type==='alert.created')void refresh();});return()=>{cancelled=true;unsubscribe?.();};},[user]);
+  const canSelectAnyAgency=user?.roles.includes('super_admin')??false; const effectiveAgency=canSelectAnyAgency||!user?.agencyId?selectedAgency:'All Agencies'; const filteredVehicles=vehicles.filter((vehicle)=>effectiveAgency==='All Agencies'||vehicle.department===effectiveAgency); const selectedVehicle=vehicles.find((vehicle)=>vehicle.id===selectedVehicleId)||null;
+  const handleAuthenticated=async()=>{try{const currentUser=await getCurrentUser();setUser(currentUser);setActiveTab('overview');}catch{setUser(null);}}; const handleLogout=async()=>{await logout();setUser(null);setSelectedVehicleId(null);setIsDossierOpen(false);setActivePlaybackTrip(null);setActiveTab('overview');}; const handleSelectVehicle=(id:string)=>{setSelectedVehicleId(id);setIsDossierOpen(true);}; const handleNavigateToTracking=(vehicleId?:string)=>{if(vehicleId)setSelectedVehicleId(vehicleId);setActiveTab('tracking');}; const handleAcknowledgeAlert=async(alertId:string)=>{console.warn('Alert acknowledgement requires the live alert API; no local simulation is performed.',alertId);}; const handleDispatchPolice=(alertId:string)=>console.warn('Police dispatch requires a live backend workflow.',alertId); const handleAddGeofence=(_geo:Geofence)=>console.warn('Geofence creation is not connected to the live API yet.'); const handleDeleteGeofence=(_id:string)=>console.warn('Geofence deletion is not connected to the live API yet.'); const handleAddMaintenance=(_item:MaintenanceItem)=>console.warn('Maintenance creation is not connected to the live API yet.'); const handleReplayVehicleTrip=(vehicle:Vehicle)=>{const existingTrip=trips.find((trip)=>trip.vehicleReg===vehicle.regNumber);if(existingTrip){setIsDossierOpen(false);setActivePlaybackTrip(existingTrip);}};
+  if(authLoading)return <div className="min-h-screen w-full bg-slate-950 flex items-center justify-center text-slate-400"><div className="flex items-center gap-3 text-sm"><div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin"/>Verifying secure session...</div></div>; if(!user)return <LoginView onAuthenticated={handleAuthenticated}/>;
+  return <div className="flex flex-row h-screen w-screen bg-slate-950 text-slate-100 overflow-hidden font-sans select-none"><Sidebar activeTab={activeTab} setActiveTab={setActiveTab} selectedAgency={effectiveAgency} setSelectedAgency={canSelectAnyAgency?setSelectedAgency:()=>undefined} currentRole={(user.roles[0]||'fleet_admin') as UserRole} setCurrentRole={()=>undefined} activeAlerts={alerts} alertCount={alerts.length} onOpenAlerts={()=>setActiveTab('alerts')} onOpenMobileApp={()=>setIsMobileModalOpen(true)}/><main className="flex-1 flex flex-col overflow-hidden relative min-w-0 bg-slate-950">
+    {activeTab==='admin'&&canSelectAnyAgency?<PlatformAdministrationView/>:<>
+      {(activeTab==='overview'||activeTab==='dashboard')&&<DashboardOverview vehicles={filteredVehicles} alerts={alerts} fuelLogs={fuelLogs} selectedAgency={effectiveAgency} onNavigateToTracking={handleNavigateToTracking} onOpenAlerts={()=>setActiveTab('alerts')} onOpenFuelIntelligence={()=>setActiveTab('fuel')} onOpenDriverSafety={()=>setActiveTab('safety')}/>} {activeTab==='tracking'&&<div className="flex-1 flex flex-col md:flex-row h-full w-full overflow-hidden relative"><div className="w-full md:w-80 lg:w-96 h-64 md:h-full z-10 shrink-0 border-r border-slate-800 bg-slate-950 shadow-2xl"><FleetListPanel vehicles={filteredVehicles} selectedVehicleId={selectedVehicleId} onSelectVehicle={(id)=>setSelectedVehicleId(id)} onOpenDossier={(vehicle)=>{setSelectedVehicleId(vehicle.id);setIsDossierOpen(true)}} onInspectVehicle={handleSelectVehicle}/></div><div className="flex-1 h-full relative"><MapView vehicles={filteredVehicles} geofences={geofences} selectedVehicleId={selectedVehicleId} onSelectVehicle={(id)=>setSelectedVehicleId(id)} onOpenVehicleDossier={(vehicle)=>{setSelectedVehicleId(vehicle.id);setIsDossierOpen(true)}} onReplayTrip={handleReplayVehicleTrip}/></div></div>}
+      {(activeTab==='fleet'||activeTab==='intelligence')&&<FleetRegistryView vehicles={filteredVehicles} onSelectVehicle={handleSelectVehicle} onOpenDossier={(vehicle)=>{setSelectedVehicleId(vehicle.id);setIsDossierOpen(true)}} onNavigateToMap={handleNavigateToTracking}/>} {activeTab==='fuel'&&<FuelMonitoringView vehicles={filteredVehicles} fuelLogs={fuelLogs} onSelectVehicle={handleSelectVehicle}/>} {activeTab==='geofences'&&<GeofencingView geofences={geofences} onAddGeofence={handleAddGeofence} onDeleteGeofence={handleDeleteGeofence} onViewOnMap={()=>setActiveTab('tracking')}/>} {(activeTab==='safety'||activeTab==='driver')&&<DriverSafetyView vehicles={filteredVehicles} onSelectVehicle={handleSelectVehicle}/>} {activeTab==='maintenance'&&<MaintenanceView maintenanceList={maintenance} vehicles={filteredVehicles} onAddMaintenance={handleAddMaintenance} onSelectVehicle={handleSelectVehicle}/>} {activeTab==='devices'&&<div className="flex-1 overflow-y-auto"><DeviceRegistrationView/><GpsDevicesView vehicles={filteredVehicles}/></div>} {activeTab==='alerts'&&<AlertsView alerts={alerts} onAcknowledgeAlert={handleAcknowledgeAlert} onDispatchPolice={handleDispatchPolice} onLocateOnMap={handleNavigateToTracking}/>} {activeTab==='reports'&&<ReportsView trips={trips} vehicles={filteredVehicles} onPlayTrip={(trip)=>setActivePlaybackTrip(trip)}/>} {(activeTab==='audit'||activeTab==='api')&&<AuditSecurityView auditLogs={auditLogs}/>}</>}
+    </main><div className="fixed top-4 right-4 z-[9999] flex items-center gap-2"><div className="flex items-center gap-2 px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl"><UserCircle className="w-5 h-5 text-cyan-400"/><div className="leading-tight"><div className="text-xs font-semibold text-white">{user.fullName}</div><div className="text-[9px] text-slate-400 font-mono">{user.roles.join(' · ')}</div></div></div><button type="button" onClick={handleLogout} title="Sign out" aria-label="Sign out" className="flex items-center gap-2 px-3 py-2 bg-red-950/80 border border-red-800 rounded-lg text-red-300 hover:bg-red-900 hover:text-white transition-colors shadow-2xl"><LogOut className="w-4 h-4"/><span className="text-xs font-semibold">Logout</span></button></div>{isDossierOpen&&selectedVehicle&&<VehicleDetailModal vehicle={selectedVehicle} onClose={()=>setIsDossierOpen(false)} onTriggerSOS={()=>undefined} onTriggerFuelTheft={()=>undefined} onTriggerRefuel={()=>undefined} onPlayTrip={handleReplayVehicleTrip}/>} {activePlaybackTrip&&<TripPlaybackModal trip={activePlaybackTrip} vehicle={vehicles.find((vehicle)=>vehicle.regNumber===activePlaybackTrip.vehicleReg)} onClose={()=>setActivePlaybackTrip(null)}/>} {isMobileModalOpen&&<DriverMobileModal vehicle={selectedVehicle||filteredVehicles[0]||vehicles[0]} onClose={()=>setIsMobileModalOpen(false)} onTriggerSOS={()=>undefined}/>} {dataLoading&&<div className="fixed bottom-4 right-4 z-[9999] rounded-lg border border-slate-700 bg-slate-900/95 px-3 py-2 text-xs text-slate-400 shadow-xl">Loading live fleet data…</div>}</div>;
 }
-
 export default App;
