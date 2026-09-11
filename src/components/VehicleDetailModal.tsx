@@ -1,297 +1,48 @@
-import React from 'react';
-import { 
-  X, 
-  Car, 
-  User, 
-  Phone, 
-  ShieldCheck, 
-  Fuel, 
-  BatteryCharging, 
-  Radio, 
-  Calendar, 
-  AlertTriangle, 
-  Clock, 
-  FileText, 
-  Wrench, 
-  Cpu, 
-  MapPin, 
-  Gauge, 
-  Flame, 
-  Activity,
-  Play
-} from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { X, Car, User, Radio, MapPin, Gauge, Fuel, ShieldCheck, Wrench, FileText, Edit3, Save, AlertTriangle } from 'lucide-react';
 import { Vehicle } from '../types/fleet';
+import { getVehicle, updateVehicle, VehicleDetail, VehicleWriteInput } from '../services/api';
 
-interface VehicleDetailModalProps {
-  vehicle: Vehicle | null;
-  onClose: () => void;
-  onTriggerSOS: (vehicleId: string) => void;
-  onTriggerFuelTheft: (vehicleId: string) => void;
-  onTriggerRefuel: (vehicleId: string) => void;
-  onPlayTrip?: (vehicle: Vehicle) => void;
-}
+interface VehicleDetailModalProps { vehicle: Vehicle | null; onClose: () => void; onTriggerSOS: (vehicleId: string) => void; onTriggerFuelTheft: (vehicleId: string) => void; onTriggerRefuel: (vehicleId: string) => void; onPlayTrip?: (vehicle: Vehicle) => void; }
 
-export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({
-  vehicle,
-  onClose,
-  onTriggerSOS,
-  onTriggerFuelTheft,
-  onTriggerRefuel,
-  onPlayTrip,
-}) => {
-  if (!vehicle) return null;
+type Tab = 'overview' | 'telemetry' | 'driver' | 'compliance' | 'maintenance' | 'history';
+const value = (x: unknown, fallback = 'Not recorded') => x === null || x === undefined || x === '' ? fallback : String(x);
+const dateLabel = (x: unknown) => x ? new Date(String(x)).toLocaleDateString() : 'Not recorded';
 
-  const isRegistrationExpired = new Date(vehicle.registrationExpiry) < new Date();
-  const kmToNextService = vehicle.nextServiceKm - vehicle.mileageKm;
+export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({ vehicle, onClose }) => {
+  const [detail, setDetail] = useState<VehicleDetail | null>(null);
+  const [tab, setTab] = useState<Tab>('overview');
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [form, setForm] = useState<Record<string, string>>({});
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-slate-950/80 backdrop-blur-sm overflow-y-auto">
-      <div className="relative w-full max-w-3xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden my-auto text-slate-100 flex flex-col max-h-[90vh]">
-        {/* Modal Header */}
-        <div className="p-4 sm:p-5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-cyan-950 border border-cyan-700 flex items-center justify-center">
-              <Car className="w-5 h-5 text-cyan-400" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h2 className="text-base sm:text-lg font-bold text-white font-mono">{vehicle.regNumber}</h2>
-                <span className="text-xs px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 font-mono">
-                  {vehicle.assetNumber}
-                </span>
-                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                  vehicle.status === 'moving' ? 'bg-emerald-950 text-emerald-300 border border-emerald-800' :
-                  vehicle.status === 'emergency' ? 'bg-red-950 text-red-300 border border-red-800 animate-pulse' :
-                  vehicle.status === 'idling' ? 'bg-amber-950 text-amber-300 border border-amber-800' :
-                  'bg-blue-950 text-blue-300 border border-blue-800'
-                }`}>
-                  {vehicle.status}
-                </span>
-              </div>
-              <p className="text-xs text-slate-400">
-                {vehicle.year} {vehicle.make} {vehicle.model} • {vehicle.department}
-              </p>
-            </div>
-          </div>
+  useEffect(() => { if (!vehicle) return; setDetail(null); setError(''); void getVehicle(vehicle.id).then(d => { setDetail(d); setForm({ registrationNumber:d.registration_number, assetNumber:d.asset_number||'', vin:d.vin||'', engineNumber:d.engine_number||'', make:d.make||'', model:d.model||'', modelYear:String(d.model_year||''), vehicleType:d.vehicle_type||'', bodyType:d.body_type||'', color:d.color||'', transmission:d.transmission||'', seats:String(d.seats||''), fuelType:d.fuel_type||'', tankCapacityLitres:String(d.tank_capacity_litres||''), odometerKm:String(d.odometer_km||''), baseLocation:d.base_location||'', costCenter:d.cost_center||'', assetCategory:d.asset_category||'', registrationExpiry:d.registration_expiry||'', insuranceExpiry:d.insurance_expiry||'', roadworthinessExpiry:d.roadworthiness_expiry||'', permitExpiry:d.permit_expiry||'', nextServiceDate:d.next_service_date||'', nextServiceOdometerKm:String(d.next_service_odometer_km||''), lastServiceDate:d.last_service_date||'', lastServiceOdometerKm:String(d.last_service_odometer_km||''), notes:d.notes||'' }); }).catch(e => setError(e instanceof Error ? e.message : 'Unable to load vehicle dossier')); }, [vehicle]);
 
-          <button
-            id="btn-close-vehicle-dossier"
-            onClick={onClose}
-            className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+  const source = detail || (vehicle ? ({ registration_number:vehicle.regNumber, asset_number:vehicle.assetNumber, make:vehicle.make, model:vehicle.model, model_year:vehicle.year, status:vehicle.status, department_name:vehicle.department, odometer_km:vehicle.mileageKm, tank_capacity_litres:vehicle.tankCapacityLiters, fuel_type:vehicle.fuelType, registration_expiry:vehicle.registrationExpiry, insurance_expiry:vehicle.insuranceExpiry, next_service_odometer_km:vehicle.nextServiceKm } as VehicleDetail) : null);
+  const latest = detail?.latest_telemetry;
+  const driver = detail?.current_driver;
+  const device = detail?.current_device;
+  const compliance = useMemo(() => [{label:'Registration',date:source?.registration_expiry},{label:'Insurance',date:source?.insurance_expiry},{label:'Roadworthiness',date:source?.roadworthiness_expiry},{label:'Permit',date:source?.permit_expiry}], [source]);
 
-        {/* Modal Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
-          {/* Live Telemetry Bar */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-950 p-4 rounded-xl border border-slate-800">
-            <div>
-              <span className="text-[10px] text-slate-500 uppercase font-medium block">Current Velocity</span>
-              <div className="flex items-baseline space-x-1 mt-0.5">
-                <span className="text-2xl font-mono font-bold text-white">{vehicle.speedKmh}</span>
-                <span className="text-xs text-slate-400">km/h</span>
-              </div>
-              <span className="text-[10px] text-slate-400 font-mono">Heading: {vehicle.heading}°</span>
-            </div>
+  if (!vehicle || !source) return null;
+  const save = async (e: React.FormEvent) => { e.preventDefault(); setSaving(true); setError(''); try { const payload: VehicleWriteInput = {}; Object.entries(form).forEach(([k,v]) => { if (v !== '') (payload as Record<string, unknown>)[k] = ['modelYear','seats','tankCapacityLitres','odometerKm','nextServiceOdometerKm','lastServiceOdometerKm'].includes(k) ? Number(v) : v; }); const updated = await updateVehicle(vehicle.id, payload); setDetail(await getVehicle(updated.id)); setEditing(false); } catch(e) { setError(e instanceof Error ? e.message : 'Unable to save vehicle'); } finally { setSaving(false); } };
+  const fields: Array<[string,string]> = [['registrationNumber','Registration number'],['assetNumber','Asset number'],['vin','VIN / chassis'],['engineNumber','Engine number'],['make','Make'],['model','Model'],['modelYear','Model year'],['vehicleType','Vehicle type'],['bodyType','Body type'],['color','Color'],['transmission','Transmission'],['seats','Seats'],['fuelType','Fuel type'],['tankCapacityLitres','Tank capacity (L)'],['odometerKm','Odometer (km)'],['baseLocation','Base location'],['costCenter','Cost center'],['assetCategory','Asset category'],['registrationExpiry','Registration expiry'],['insuranceExpiry','Insurance expiry'],['roadworthinessExpiry','Roadworthiness expiry'],['permitExpiry','Permit expiry'],['nextServiceDate','Next service date'],['nextServiceOdometerKm','Next service odometer'],['lastServiceDate','Last service date'],['lastServiceOdometerKm','Last service odometer']];
 
-            <div>
-              <span className="text-[10px] text-slate-500 uppercase font-medium block">Trimago Fuel Sensor</span>
-              <div className="flex items-baseline space-x-1 mt-0.5">
-                <span className="text-2xl font-mono font-bold text-cyan-300">{vehicle.currentFuelPercentage}%</span>
-                <span className="text-xs text-slate-400">({vehicle.currentFuelLiters}L)</span>
-              </div>
-              <span className="text-[10px] text-slate-400 font-mono">Capacity: {vehicle.tankCapacityLiters}L</span>
-            </div>
+  return <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center p-3 sm:p-6"><div className="w-full max-w-6xl max-h-[94vh] overflow-hidden rounded-2xl bg-slate-900 border border-slate-700 shadow-2xl flex flex-col">
+    <div className="p-5 border-b border-slate-800 bg-slate-950 flex items-center justify-between"><div><div className="flex items-center gap-3"><Car className="w-6 h-6 text-cyan-400"/><h2 className="text-xl font-bold text-white font-mono">{source.registration_number}</h2><span className="px-2 py-1 rounded bg-slate-800 text-[10px] uppercase text-slate-300">{source.status}</span></div><p className="text-xs text-slate-400 mt-1">{value(source.model_year,'')} {value(source.make,'')} {value(source.model,'')} · {value(source.agency_name,source.department_name)}</p></div><div className="flex gap-2"><button onClick={()=>setEditing(v=>!v)} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs">{editing?<X className="w-4 h-4"/>:<Edit3 className="w-4 h-4"/>}{editing?'Cancel':'Edit Vehicle'}</button><button onClick={onClose} className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700"><X className="w-5 h-5"/></button></div></div>
 
-            <div>
-              <span className="text-[10px] text-slate-500 uppercase font-medium block">Ignition & Power</span>
-              <div className="flex items-center space-x-2 mt-1">
-                <span className={`px-2 py-0.5 rounded text-xs font-bold ${
-                  vehicle.ignition ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' : 'bg-slate-800 text-slate-400'
-                }`}>
-                  {vehicle.ignition ? 'IGNITION ON' : 'IGNITION OFF'}
-                </span>
-              </div>
-              <span className="text-[10px] text-slate-400 font-mono mt-1 block">Batt: {vehicle.batteryVoltage}V</span>
-            </div>
-
-            <div>
-              <span className="text-[10px] text-slate-500 uppercase font-medium block">Satellites & Signal</span>
-              <div className="flex items-center space-x-2 mt-1 text-xs font-mono text-emerald-400">
-                <Radio className="w-3.5 h-3.5" />
-                <span>{vehicle.satellites} Satellites</span>
-              </div>
-              <span className="text-[10px] text-slate-400 font-mono block">GSM 4G: {vehicle.gsmSignal}%</span>
-            </div>
-          </div>
-
-          {/* Location details */}
-          <div className="p-3.5 bg-slate-950/60 rounded-xl border border-slate-800 flex items-start space-x-3">
-            <MapPin className="w-5 h-5 text-cyan-400 shrink-0 mt-0.5" />
-            <div className="flex-1 text-xs">
-              <span className="font-semibold text-white block">Current Geolocation Coordinate</span>
-              <p className="text-slate-300 mt-0.5">{vehicle.currentLocation.address}</p>
-              <div className="flex items-center space-x-3 text-[11px] font-mono text-slate-500 mt-1">
-                <span>Lat: {vehicle.currentLocation.lat}</span>
-                <span>Lng: {vehicle.currentLocation.lng}</span>
-                <span>Updated: {vehicle.lastCommunication}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Assigned Driver Profile */}
-          <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
-            <h3 className="text-xs font-bold text-white uppercase tracking-wider mb-3 flex items-center space-x-2">
-              <User className="w-4 h-4 text-cyan-400" />
-              <span>Assigned Government Driver</span>
-            </h3>
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-center space-x-3">
-                <div className="w-12 h-12 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center font-bold text-base text-cyan-400">
-                  {vehicle.assignedDriver.name.charAt(0)}
-                </div>
-                <div>
-                  <span className="text-sm font-bold text-white block">{vehicle.assignedDriver.name}</span>
-                  <span className="text-xs text-slate-400">Driver License: {vehicle.assignedDriver.licenseNumber}</span>
-                  <div className="flex items-center space-x-1.5 text-xs text-slate-400 mt-0.5">
-                    <Phone className="w-3 h-3 text-slate-500" />
-                    <span>{vehicle.assignedDriver.phone}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-2.5 bg-slate-900 rounded-lg border border-slate-800 text-center sm:text-right">
-                <span className="text-[10px] text-slate-500 uppercase font-semibold block">Driver Safety Score</span>
-                <div className="text-xl font-mono font-bold text-emerald-400">
-                  {vehicle.assignedDriver.safetyScore}/100
-                </div>
-                <span className="text-[10px] text-slate-400">Class: Compliant Operator</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Telematics Device & Compliance Specifications */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Device Hardware Info */}
-            <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-2">
-              <h3 className="font-bold text-white flex items-center space-x-1.5 border-b border-slate-800 pb-2 mb-2">
-                <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-                <span>SinoTrack GPS Tracker & Telematics</span>
-              </h3>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-400">Hardware Model:</span>
-                <span className="font-mono text-cyan-300 font-semibold text-right max-w-[200px] truncate">
-                  {vehicle.hardwareModel || 'SinoTrack ST-906L 4G'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">SinoTrack IMEI:</span>
-                <span className="font-mono text-white">{vehicle.deviceId}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">SIM Identifier:</span>
-                <span className="font-mono text-white">{vehicle.simNumber}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Total Odometer:</span>
-                <span className="font-mono text-white">{vehicle.mileageKm.toLocaleString()} KM</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Today's Distance:</span>
-                <span className="font-mono text-white">{vehicle.dailyKm} KM</span>
-              </div>
-            </div>
-
-            {/* Compliance & Expiries */}
-            <div className="p-4 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-2">
-              <h3 className="font-bold text-white flex items-center space-x-1.5 border-b border-slate-800 pb-2 mb-2">
-                <Calendar className="w-3.5 h-3.5 text-amber-400" />
-                <span>Statutory Compliance & Service</span>
-              </h3>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Registration Expiry:</span>
-                <span className={`font-mono ${isRegistrationExpired ? 'text-red-400 font-bold' : 'text-slate-300'}`}>
-                  {vehicle.registrationExpiry} {isRegistrationExpired && '(EXPIRED)'}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Insurance Expiry:</span>
-                <span className="font-mono text-slate-300">{vehicle.insuranceExpiry}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Next Scheduled Service:</span>
-                <span className="font-mono text-cyan-300">{vehicle.nextServiceKm.toLocaleString()} KM</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Countdown to Service:</span>
-                <span className={`font-mono ${kmToNextService < 1000 ? 'text-amber-400 font-bold' : 'text-slate-300'}`}>
-                  {kmToNextService.toLocaleString()} KM remaining
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Quick Simulation & Action Buttons */}
-          <div className="p-4 bg-slate-950/80 rounded-xl border border-slate-800">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-3">
-              Fleet Operations & Intelligence Controls
-            </span>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                id="btn-dossier-sos"
-                onClick={() => onTriggerSOS(vehicle.id)}
-                className="flex items-center space-x-1.5 px-3 py-2 bg-red-950 hover:bg-red-900 border border-red-700 text-red-200 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-              >
-                <AlertTriangle className="w-3.5 h-3.5 text-red-400" />
-                <span>Trigger Emergency SOS</span>
-              </button>
-
-              <button
-                id="btn-dossier-siphon"
-                onClick={() => onTriggerFuelTheft(vehicle.id)}
-                className="flex items-center space-x-1.5 px-3 py-2 bg-amber-950 hover:bg-amber-900 border border-amber-700 text-amber-200 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-              >
-                <Flame className="w-3.5 h-3.5 text-amber-400" />
-                <span>Simulate Fuel Siphoning</span>
-              </button>
-
-              <button
-                id="btn-dossier-refuel"
-                onClick={() => onTriggerRefuel(vehicle.id)}
-                className="flex items-center space-x-1.5 px-3 py-2 bg-emerald-950 hover:bg-emerald-900 border border-emerald-700 text-emerald-200 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
-              >
-                <Fuel className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Log +45L Refuel</span>
-              </button>
-
-              {onPlayTrip && (
-                <button
-                  id="btn-dossier-replay-trip"
-                  onClick={() => onPlayTrip(vehicle)}
-                  className="flex items-center space-x-1.5 px-3 py-2 bg-cyan-950 hover:bg-cyan-900 border border-cyan-700 text-cyan-200 rounded-lg text-xs font-semibold transition-colors cursor-pointer ml-auto"
-                >
-                  <Play className="w-3.5 h-3.5 text-cyan-400" />
-                  <span>Replay Recorded Trip</span>
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Modal Footer */}
-        <div className="p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
-          <span className="font-mono text-[11px]">Audit Serial: QTS-GOV-REG-{vehicle.id}</span>
-          <button
-            id="btn-close-dossier-bottom"
-            onClick={onClose}
-            className="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-medium transition-colors"
-          >
-            Close Dossier
-          </button>
-        </div>
-      </div>
-    </div>
-  );
+    {editing ? <form onSubmit={save} className="flex-1 overflow-y-auto p-5"><div className="grid grid-cols-1 md:grid-cols-3 gap-3">{fields.map(([key,label])=><label key={key} className="text-xs text-slate-400">{label}<input value={form[key]||''} onChange={e=>setForm({...form,[key]:e.target.value})} type={key.toLowerCase().includes('date')||key.toLowerCase().includes('expiry')?'date':'text'} className="mt-1 w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white outline-none focus:border-cyan-600"/></label>)}</div><label className="block text-xs text-slate-400 mt-3">Notes<textarea value={form.notes||''} onChange={e=>setForm({...form,notes:e.target.value})} className="mt-1 w-full min-h-24 px-3 py-2 rounded-lg bg-slate-950 border border-slate-800 text-white"/></label>{error&&<div className="mt-4 p-3 rounded-lg bg-red-950/50 border border-red-800 text-red-300 text-xs"><AlertTriangle className="inline w-4 h-4 mr-1"/>{error}</div>}<div className="flex justify-end mt-5"><button disabled={saving} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 text-xs font-semibold"><Save className="w-4 h-4"/>{saving?'Saving…':'Save Vehicle'}</button></div></form> : <>
+      <div className="flex gap-1 px-4 pt-3 bg-slate-950 border-b border-slate-800 overflow-x-auto">{(['overview','telemetry','driver','compliance','maintenance','history'] as Tab[]).map(t=><button key={t} onClick={()=>setTab(t)} className={`px-4 py-2 text-xs capitalize border-b-2 ${tab===t?'border-cyan-400 text-cyan-300':'border-transparent text-slate-500 hover:text-slate-300'}`}>{t}</button>)}</div>
+      <div className="flex-1 overflow-y-auto p-5 space-y-5">
+        {tab==='overview' && <><div className="grid grid-cols-2 md:grid-cols-5 gap-3">{[['Odometer',`${Number(source.odometer_km||0).toLocaleString()} km`],['Speed',`${Number(latest?.speed_kmh??vehicle.speedKmh).toLocaleString()} km/h`],['Fuel',latest?.fuel_litres!=null?`${latest.fuel_litres} L`:'Not available'],['Trips',String(detail?.trip_count??0)],['Month distance',`${Number(detail?.month_distance_km??0).toLocaleString()} km`]].map(([a,b])=><div key={a} className="p-4 rounded-xl bg-slate-950 border border-slate-800"><div className="text-[10px] uppercase text-slate-500">{a}</div><div className="text-lg font-bold font-mono text-white mt-1">{b}</div></div>)}</div><div className="grid grid-cols-1 md:grid-cols-2 gap-4"><section className="p-4 rounded-xl bg-slate-950 border border-slate-800"><h3 className="text-xs font-bold text-white mb-3 flex gap-2"><FileText className="w-4 h-4 text-cyan-400"/>Asset identity</h3><div className="grid grid-cols-2 gap-3 text-xs">{[['VIN',source.vin],['Engine',source.engine_number],['Asset',source.asset_number],['Type',source.vehicle_type],['Fuel',source.fuel_type],['Base',source.base_location],['Cost center',source.cost_center],['Category',source.asset_category]].map(([a,b])=><div key={a}><span className="text-slate-500">{a}</span><div className="text-slate-200 mt-0.5">{value(b)}</div></div>)}</div></section><section className="p-4 rounded-xl bg-slate-950 border border-slate-800"><h3 className="text-xs font-bold text-white mb-3 flex gap-2"><Wrench className="w-4 h-4 text-amber-400"/>Maintenance & alerts</h3><div className="grid grid-cols-2 gap-3 text-xs"><div><span className="text-slate-500">Open maintenance</span><div className="text-white font-bold">{detail?.open_maintenance_count??0}</div></div><div><span className="text-slate-500">Open alerts</span><div className="text-white font-bold">{detail?.open_alert_count??0}</div></div><div><span className="text-slate-500">Next service</span><div className="text-white">{dateLabel(source.next_service_date)}</div></div><div><span className="text-slate-500">Service mileage</span><div className="text-white">{source.next_service_odometer_km ? `${Number(source.next_service_odometer_km).toLocaleString()} km` : 'Not recorded'}</div></div></div></section></div></>}
+        {tab==='telemetry' && <div className="grid grid-cols-2 md:grid-cols-4 gap-3">{[['GPS',latest?'Connected':'No recent telemetry'],['Ignition',latest?.ignition===true?'ON':latest?'OFF':'—'],['Speed',`${Number(latest?.speed_kmh??0)} km/h`],['Heading',`${Number(latest?.heading??0)}°`],['Satellites',String(latest?.satellites??0)],['GSM signal',`${Number(latest?.gsm_signal??0)}%`],['Battery',`${Number(latest?.battery_voltage??0)} V`],['Last report',dateLabel(latest?.recorded_at)]].map(([a,b])=><div key={a} className="p-4 rounded-xl bg-slate-950 border border-slate-800"><div className="text-[10px] uppercase text-slate-500">{a}</div><div className="text-sm font-mono text-white mt-1">{b}</div></div>)}<div className="col-span-full p-4 rounded-xl bg-slate-950 border border-slate-800"><div className="flex items-center gap-2 text-xs text-slate-400"><MapPin className="w-4 h-4 text-cyan-400"/>Last position</div><div className="font-mono text-sm text-white mt-2">{latest ? `${latest.latitude}, ${latest.longitude}` : 'No position received yet'}</div></div></div>}
+        {tab==='driver' && <div className="p-5 rounded-xl bg-slate-950 border border-slate-800">{driver ? <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs">{[['Driver',driver.full_name],['Employee no.',driver.employee_number],['Phone',driver.phone],['Licence',driver.licence_number],['Licence expiry',dateLabel(driver.licence_expiry)],['Assignment started',dateLabel(driver.assignment_started_at)]].map(([a,b])=><div key={a}><div className="text-slate-500">{a}</div><div className="text-white mt-1">{value(b)}</div></div>)}</div> : <div className="text-sm text-slate-500">No active driver assignment.</div>}</div>}
+        {tab==='compliance' && <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{compliance.map(c=>{const expired=c.date && new Date(String(c.date))<new Date(); return <div key={c.label} className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex justify-between"><div><div className="text-xs text-slate-300">{c.label}</div><div className="text-[11px] text-slate-500 mt-1">Expiry date</div></div><div className={`font-mono text-sm ${expired?'text-red-400':'text-white'}`}>{dateLabel(c.date)}{expired?' · EXPIRED':''}</div></div>})}</div>}
+        {tab==='maintenance' && <div className="space-y-2">{(detail?.recent_maintenance||[]).map((m:any)=><div key={m.id} className="p-4 rounded-xl bg-slate-950 border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3"><div><div className="text-sm text-white">{value(m.category)}</div><div className="text-xs text-slate-500">{value(m.service_provider)} · {dateLabel(m.performed_at||m.due_at)}</div></div><div className="text-right"><div className="text-xs text-slate-300">{value(m.status)}</div><div className="text-[10px] text-slate-500">Actual cost: {value(m.actual_cost,'—')}</div></div></div>)}{!detail?.recent_maintenance?.length&&<div className="text-sm text-slate-500 p-6 text-center">No maintenance records found.</div>}</div>}
+        {tab==='history' && <div className="space-y-2">{(detail?.assignment_history||[]).map((h:any)=><div key={`${h.assignment_type}-${h.id}`} className="p-4 rounded-xl bg-slate-950 border border-slate-800"><div className="flex justify-between"><span className="text-xs uppercase text-cyan-300">{h.assignment_type} assignment</span><span className="text-[10px] text-slate-500">{dateLabel(h.starts_at)} → {h.ends_at?dateLabel(h.ends_at):'Current'}</span></div><div className="text-sm text-white mt-1">{value(h.assignee)}</div><div className="text-[10px] text-slate-500">{value(h.reference)}</div></div>)}{!detail?.assignment_history?.length&&<div className="text-sm text-slate-500 p-6 text-center">No assignment history.</div>}</div>}
+      </div></>}
+    {error&&!editing&&<div className="px-5 pb-3 text-xs text-red-400">{error}</div>}
+    <div className="px-5 py-3 border-t border-slate-800 bg-slate-950 text-[10px] text-slate-500 flex justify-between"><span>Vehicle ID: {vehicle.id}</span><span>QTS GovFleet · Live operational record</span></div>
+  </div></div>;
 };
