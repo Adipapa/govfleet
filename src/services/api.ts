@@ -8,8 +8,26 @@ export type ApiUser = {
   agencyId: string | null; departmentId: string | null; driverId: string | null;
   roles: string[]; permissions: string[];
 };
-export type VehicleApiRow = { id: string; registration_number: string; asset_number: string | null; make: string | null; model: string | null; model_year: number | null; vehicle_type: string | null; fuel_type: string | null; tank_capacity_litres: number | null; odometer_km: number; status: string; agency_id: string; agency_name: string; department_id: string | null; department_name: string | null };
+
+export type VehicleApiRow = {
+  id: string; registration_number: string; asset_number: string | null; vin: string | null; engine_number: string | null;
+  make: string | null; model: string | null; model_year: number | null; vehicle_type: string | null; body_type: string | null;
+  color: string | null; transmission: string | null; seats: number | null; fuel_type: string | null;
+  tank_capacity_litres: number | null; odometer_km: number; status: string; active: boolean; agency_id: string; agency_name: string;
+  department_id: string | null; department_name: string | null; acquisition_date: string | null; acquisition_method: string | null;
+  purchase_value: number | null; base_location: string | null; cost_center: string | null; asset_category: string | null;
+  registration_expiry: string | null; insurance_expiry: string | null; roadworthiness_expiry: string | null; permit_expiry: string | null;
+  next_service_date: string | null; next_service_odometer_km: number | null; last_service_date: string | null;
+  last_service_odometer_km: number | null; notes: string | null; disposal_date: string | null; disposal_reason: string | null;
+  created_at: string; updated_at: string;
+};
 export type VehicleListResponse = { data: VehicleApiRow[]; pagination: { page: number; limit: number; total: number; pages: number } };
+export type VehicleDetail = VehicleApiRow & {
+  current_driver: Record<string, unknown> | null; current_device: Record<string, unknown> | null;
+  latest_telemetry: Record<string, unknown> | null; trip_count: number; open_maintenance_count: number;
+  open_alert_count: number; month_distance_km: number; recent_maintenance: Array<Record<string, unknown>> | null;
+  assignment_history: Array<Record<string, unknown>>;
+};
 export type AlertListResponse = { data: AlertEvent[]; pagination: { page: number; limit: number; total: number; pages: number } };
 export type DeviceApiRow = { id: string; device_identifier: string; serial_number: string | null; manufacturer: string | null; model: string | null; protocol: string | null; firmware_version: string | null; status: string; last_heartbeat_at: string | null; vehicle_id: string | null; registration_number: string | null; agency_id: string | null; department_id: string | null };
 export type DeviceCreateInput = { deviceIdentifier: string; serialNumber?: string; manufacturer?: string; model?: string; protocol?: string; firmwareVersion?: string };
@@ -29,13 +47,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (response.status === 204) return undefined as T; return response.json() as Promise<T>;
 }
 
-export async function login(username: string, password: string) {
-  const result = await request<{ token: string; expiresAt: string; user: ApiUser }>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) });
-  setAccessToken(result.token); return result;
-}
+export async function login(username: string, password: string) { const result = await request<{ token: string; expiresAt: string; user: ApiUser }>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }); setAccessToken(result.token); return result; }
 export async function getCurrentUser(): Promise<ApiUser> { return (await request<{ user: ApiUser }>('/auth/me')).user; }
 export async function logout(): Promise<void> { try { await request<void>('/auth/logout', { method: 'POST' }); } finally { clearAccessToken(); } }
-export async function getVehicles(params: { page?: number; limit?: number; search?: string; status?: string } = {}) { const query = new URLSearchParams(); if (params.page) query.set('page', String(params.page)); if (params.limit) query.set('limit', String(params.limit)); if (params.search) query.set('search', params.search); if (params.status) query.set('status', params.status); return request<VehicleListResponse>(`/vehicles?${query.toString()}`); }
+export async function getVehicles(params: { page?: number; limit?: number; search?: string; status?: string; agencyId?: string; departmentId?: string; vehicleType?: string; fuelType?: string; includeInactive?: boolean } = {}) { const query = new URLSearchParams(); Object.entries(params).forEach(([key, value]) => { if (value !== undefined && value !== '') query.set(key, String(value)); }); return request<VehicleListResponse>(`/vehicles?${query.toString()}`); }
+export async function getVehicle(id: string) { return (await request<{ data: VehicleDetail }>(`/vehicles/${encodeURIComponent(id)}`)).data; }
+export type VehicleWriteInput = Partial<{ agencyId: string; departmentId: string; registrationNumber: string; assetNumber: string; vin: string; engineNumber: string; make: string; model: string; modelYear: number; vehicleType: string; bodyType: string; color: string; transmission: string; seats: number; fuelType: string; tankCapacityLitres: number; odometerKm: number; acquisitionDate: string; acquisitionMethod: string; purchaseValue: number; baseLocation: string; costCenter: string; assetCategory: string; registrationExpiry: string; insuranceExpiry: string; roadworthinessExpiry: string; permitExpiry: string; nextServiceDate: string; nextServiceOdometerKm: number; lastServiceDate: string; lastServiceOdometerKm: number; notes: string; disposalDate: string; disposalReason: string; status: string; active: boolean }>;
+export async function createVehicle(input: VehicleWriteInput) { return (await request<{ data: VehicleApiRow }>('/vehicles', { method: 'POST', body: JSON.stringify(input) })).data; }
+export async function updateVehicle(id: string, input: VehicleWriteInput) { return (await request<{ data: VehicleApiRow }>(`/vehicles/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(input) })).data; }
 export async function getDevices() { return request<{ data: DeviceApiRow[] }>('/devices'); }
 export async function registerDevice(input: DeviceCreateInput) { return request<{ data: DeviceApiRow }>('/devices', { method: 'POST', body: JSON.stringify(input) }); }
 export async function assignDevice(deviceId: string, vehicleId: string) { return request<{ data: Record<string, unknown> }>(`/devices/${encodeURIComponent(deviceId)}/assign`, { method: 'POST', body: JSON.stringify({ vehicleId }) }); }
@@ -48,8 +67,22 @@ export async function acknowledgeAlert(id: string) { return request(`/alerts/${e
 export function mapVehicle(row: VehicleApiRow, telemetry?: Record<string, unknown>): Vehicle {
   const fuelType = row.fuel_type === 'Petrol' ? 'Petrol' : 'Diesel';
   const status = ['moving','stopped','idling','parked','offline','no_gps','emergency','unauthorized'].includes(row.status) ? row.status as Vehicle['status'] : 'offline';
-  const department = row.department_name || row.agency_name; const lat = Number(telemetry?.latitude ?? 0); const lng = Number(telemetry?.longitude ?? 0); const speed = Number(telemetry?.speed_kmh ?? 0); const ignition = Boolean(telemetry?.ignition ?? false); const tank = Number(row.tank_capacity_litres ?? 0); const fuel = Number(telemetry?.fuel_litres ?? 0);
-  return { id: row.id, regNumber: row.registration_number, assetNumber: row.asset_number || '', make: row.make || '', model: row.model || '', year: row.model_year || new Date().getFullYear(), type: (row.vehicle_type || 'Utility Pickup') as Vehicle['type'], department: department as Vehicle['department'], assignedDriver: { id: '', name: 'Unassigned', phone: '', licenseNumber: '', safetyScore: 100 }, deviceId: '', simNumber: '', fuelType, tankCapacityLiters: tank, currentFuelLiters: fuel, currentFuelPercentage: tank > 0 ? Math.round((fuel / tank) * 100) : 0, mileageKm: Number(telemetry?.odometer_km ?? row.odometer_km ?? 0), status, currentLocation: { lat, lng, address: '' }, speedKmh: speed, heading: Number(telemetry?.heading ?? 0), ignition, gpsStatus: telemetry ? 'Connected' : 'Offline', satellites: Number(telemetry?.satellites ?? 0), gsmSignal: Number(telemetry?.gsm_signal ?? 0), lastCommunication: String(telemetry?.recorded_at ?? ''), batteryVoltage: Number(telemetry?.battery_voltage ?? 0), insuranceExpiry: '', registrationExpiry: '', nextServiceKm: 0, lastServiceDate: '', dailyKm: 0, workingHoursToday: 0, idleHoursToday: 0, afterHoursUsageDetected: false };
+  const department = row.department_name || row.agency_name;
+  const currentTelemetry = telemetry;
+  const lat = Number(currentTelemetry?.latitude ?? 0); const lng = Number(currentTelemetry?.longitude ?? 0);
+  const tank = Number(row.tank_capacity_litres ?? 0); const fuel = Number(currentTelemetry?.fuel_litres ?? 0);
+  return {
+    id: row.id, regNumber: row.registration_number, assetNumber: row.asset_number || '', make: row.make || '', model: row.model || '', year: row.model_year || 0,
+    type: (row.vehicle_type || 'Other') as Vehicle['type'], department: department as Vehicle['department'],
+    assignedDriver: { id: '', name: 'Unassigned', phone: '', licenseNumber: '', safetyScore: 0 }, deviceId: '', simNumber: '', fuelType,
+    tankCapacityLiters: tank, currentFuelLiters: fuel, currentFuelPercentage: tank > 0 && currentTelemetry?.fuel_litres != null ? Math.round((fuel / tank) * 100) : 0,
+    mileageKm: Number(currentTelemetry?.odometer_km ?? row.odometer_km ?? 0), status,
+    currentLocation: { lat, lng, address: '' }, speedKmh: Number(currentTelemetry?.speed_kmh ?? 0), heading: Number(currentTelemetry?.heading ?? 0),
+    ignition: Boolean(currentTelemetry?.ignition ?? false), gpsStatus: currentTelemetry ? 'Connected' : 'Offline', satellites: Number(currentTelemetry?.satellites ?? 0),
+    gsmSignal: Number(currentTelemetry?.gsm_signal ?? 0), lastCommunication: String(currentTelemetry?.recorded_at ?? ''), batteryVoltage: Number(currentTelemetry?.battery_voltage ?? 0),
+    insuranceExpiry: row.insurance_expiry || '', registrationExpiry: row.registration_expiry || '', nextServiceKm: Number(row.next_service_odometer_km ?? 0),
+    lastServiceDate: row.last_service_date || '', dailyKm: 0, workingHoursToday: 0, idleHoursToday: 0, afterHoursUsageDetected: false,
+  };
 }
 
 export type FleetEvent = { type: 'connected' | 'telemetry.updated' | 'alert.created' | 'vehicle.updated'; occurredAt: string; payload: Record<string, unknown> };
