@@ -3,7 +3,7 @@
 # ============================================================
 
 # ------------------------------------------------------------
-# Stage 1 — Build application
+# Stage 1 â€” Build application
 # ------------------------------------------------------------
 FROM node:22-bookworm-slim AS builder
 
@@ -20,7 +20,7 @@ RUN npm run build:api
 
 
 # ------------------------------------------------------------
-# Stage 2 — API production image
+# Stage 2 â€” API production image
 # ------------------------------------------------------------
 FROM node:22-bookworm-slim AS api
 
@@ -42,10 +42,11 @@ CMD ["node", "dist-server/server.js"]
 
 
 # ------------------------------------------------------------
-# Stage 3 — Frontend production image
+# Stage 3 â€” Frontend production image
 # ------------------------------------------------------------
 FROM nginx:alpine AS frontend
 
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
 
 EXPOSE 80
